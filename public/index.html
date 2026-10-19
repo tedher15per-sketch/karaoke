@@ -31,6 +31,7 @@
   <!-- Paso 2: buscar -->
   <section id="searchStep" class="hidden">
     <div class="hello">Hola <b id="helloName"></b> · <a href="#" id="changeName">cambiar</a></div>
+    <div id="mySong" class="my-song hidden"></div>
     <form id="searchForm" class="search">
       <input id="q" placeholder="Canción, artista o link de YouTube…" autocomplete="off">
       <button class="btn primary">Buscar</button>
@@ -166,6 +167,7 @@ async function signUp(v, btn) {
 }
 
 // ---------- Cola ----------
+let hadSong = false; // para avisar cuando ya cantaste
 function render() {
   const { current, queue } = state;
   $('#nowPlaying').innerHTML = current
@@ -178,6 +180,26 @@ function render() {
   const pill = $('#myTurn');
   if (!myName || !sala) return pill.classList.add('hidden');
   const pos = queue.findIndex((s) => s.name === myName);
+  const singing = !!(current && current.name === myName);
+  const hasSong = singing || pos >= 0;
+
+  // Una canción a la vez: mientras tengas una pendiente, se esconde el buscador
+  const box = $('#mySong');
+  box.classList.toggle('hidden', !hasSong);
+  $('#searchForm').classList.toggle('hidden', hasSong);
+  if (hasSong) {
+    const song = singing ? current : queue[pos];
+    $('#results').innerHTML = '';
+    box.innerHTML = `<div class="label">${singing ? '🎤 ESTÁS CANTANDO' : 'TU CANCIÓN · LUGAR #' + (pos + 1)}</div>
+      <b>${esc(song.title)}</b>
+      <small>Cuando termines podrás agregar la siguiente y se irá al final de la fila.</small>`;
+  }
+  if (hadSong && !hasSong) {
+    flash('¡Bien cantado! 👏 Ya puedes agregar tu siguiente canción', 'ok');
+    if (navigator.vibrate) navigator.vibrate([80, 60, 80]);
+  }
+  hadSong = hasSong;
+
   if (current && current.name === myName) {
     pill.textContent = '🎤 ¡Te toca!'; pill.className = 'pill live';
   } else if (pos >= 0) {

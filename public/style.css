@@ -152,3 +152,8 @@ input:focus { border-color: var(--pink); }
 .sala b { font-size: 26px; letter-spacing: .15em; color: #b0006a; }
 .admin-actions { display: flex; gap: 8px; }
 .admin-actions .btn { flex: 1; }
+
+/* ---- Tu canción (una a la vez) ---- */
+.my-song { background: linear-gradient(135deg, #3b0f4f, #1b2b5a); border-radius: 12px; padding: 14px; display: grid; gap: 4px; }
+.my-song .label { font-size: 12px; letter-spacing: .12em; color: var(--yellow); font-weight: 700; }
+.my-song small { color: var(--muted); }
