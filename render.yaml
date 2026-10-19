@@ -1,0 +1,23 @@
+# Despliegue en Render (New → Blueprint → elige este repo)
+services:
+  - type: web
+    name: karaoke-party
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: YOUTUBE_API_KEY
+        sync: false        # Render te la pide al crear el servicio
+      - key: ADMIN_PIN
+        sync: false        # 6+ dígitos, que no sea 1234
+      - key: PUBLIC_URL
+        sync: false        # ej. https://karaoke-party.onrender.com (sin / al final)
+      - key: MAX_PER_PERSON
+        value: "2"
+      - key: SEARCH_SUFFIX
+        value: karaoke
+      - key: SEARCH_DAILY_LIMIT
+        value: "95"

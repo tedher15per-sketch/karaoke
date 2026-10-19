@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Karaoke · Pantalla</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="screen">
+  <!-- Pantalla de inicio (desbloquea autoplay con un clic) -->
+  <div id="start" class="overlay">
+    <div class="start-box">
+      <h1>🎤 Karaoke Party</h1>
+      <p>PIN del DJ</p>
+      <input id="pin" type="password" inputmode="numeric" placeholder="PIN" autocomplete="off">
+      <div id="pinMsg" class="msg err"></div>
+      <button id="startBtn" class="btn primary big">Iniciar fiesta</button>
+    </div>
+  </div>
+
+  <main class="stage">
+    <div class="player-wrap">
+      <div id="player"></div>
+      <div id="idle" class="idle">
+        <div>
+          <h2>Escanea y anótate 👉</h2>
+          <p>Busca tu canción y dale <b>Anotarme</b></p>
+        </div>
+      </div>
+      <div id="banner" class="banner hidden"></div>
+      <div id="fx" class="fx"></div>
+    </div>
+
+    <aside class="side">
+      <div class="now">
+        <div class="label">CANTANDO AHORA</div>
+        <div id="nowName" class="now-name">—</div>
+        <div id="nowSong" class="now-song"></div>
+      </div>
+
+      <div class="label">PRÓXIMOS</div>
+      <ol id="next" class="next"></ol>
+      <div id="more" class="more"></div>
+
+      <div class="qr-row">
+        <div id="wifiBox" class="qr-box hidden">
+          <div class="qr-step">1 · Conéctate</div>
+          <img id="wifiQr" alt="QR WiFi">
+          <div id="ssid" class="url"></div>
+        </div>
+        <div class="qr-box">
+          <div id="step2" class="qr-step hidden">2 · Anótate</div>
+          <img id="qr" alt="QR">
+          <div id="url" class="url"></div>
+          <div class="sala">Sala <b id="salaCode">····</b></div>
+        </div>
+      </div>
+
+      <div id="controls" class="controls hidden">
+        <button id="btnPause" class="btn">⏯️</button>
+        <button id="btnSkip" class="btn">⏭️ Saltar</button>
+        <button id="btnQueue" class="btn">📋 Cola</button>
+      </div>
+    </aside>
+  </main>
+
+  <!-- Panel de administración de la cola -->
+  <div id="adminPanel" class="overlay hidden">
+    <div class="admin-box">
+      <div class="admin-head">
+        <h2>Cola completa</h2>
+        <button id="closeAdmin" class="btn">✕</button>
+      </div>
+      <ol id="adminList" class="admin-list"></ol>
+      <div class="admin-actions">
+        <button id="btnNewRoom" class="btn">🔄 Nuevo código de sala</button>
+        <button id="btnClear" class="btn danger">Vaciar cola</button>
+      </div>
+    </div>
+  </div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://www.youtube.com/iframe_api"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+let socket = null;
+const emit = (ev, data) => socket && socket.emit(ev, data);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let player, ytReady = false, started = false, pin = '';
+let state = { current: null, queue: [] };
+let loadedId = null; // id de la entrada cargada en el player
+
+// ---------- YouTube ----------
+window.onYouTubeIframeAPIReady = () => {
+  player = new YT.Player('player', {
+    width: '100%', height: '100%',
+    playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+    events: {
+      onReady: () => { ytReady = true; sync(); },
+      onStateChange: (e) => { if (e.data === YT.PlayerState.ENDED) songEnded(); },
+      onError: () => { showBanner('⚠️ Video no disponible, saltando…'); setTimeout(songEnded, 2000); },
+    },
+  });
+};
+
+// Al terminar el video, avisamos al server cuál terminó (evita dobles saltos)
+function songEnded() {
+  if (state.current) emit('screen:ended', { id: state.current.id });
+}
+
+function sync() {
+  if (!ytReady || !started) return;
+  const cur = state.current;
+  $('#idle').classList.toggle('hidden', !!cur);
+  if (!cur) { player.stopVideo(); loadedId = null; return; }
+  if (cur.id !== loadedId) {
+    loadedId = cur.id;
+    player.loadVideoById(cur.videoId);
+    showBanner(`🎤 Turno de <b>${esc(cur.name)}</b>`);
+  }
+}
+
+// ---------- UI ----------
+function render() {
+  const { current, queue } = state;
+  $('#nowName').textContent = current ? current.name : '—';
+  $('#nowSong').textContent = current ? current.title : 'Esperando cantantes…';
+  const top = queue.slice(0, 3);
+  $('#next').innerHTML = top.length
+    ? top.map((s, i) => `<li><span class="n">${i + 1}</span><div><b>${esc(s.name)}</b><small>${esc(s.title)}</small></div></li>`).join('')
+    : '<li class="muted">Nadie en cola</li>';
+  $('#more').textContent = queue.length > 3 ? `+${queue.length - 3} más en la cola` : '';
+  renderAdmin();
+  sync();
+}
+
+function renderAdmin() {
+  $('#adminList').innerHTML = state.queue.map((s) => `
+    <li>
+      <div><b>${esc(s.name)}</b><small>${esc(s.title)}</small></div>
+      <span>
+        <button class="btn small" data-a="up" data-id="${s.id}">↑</button>
+        <button class="btn small" data-a="down" data-id="${s.id}">↓</button>
+        <button class="btn small danger" data-a="del" data-id="${s.id}">✕</button>
+      </span>
+    </li>`).join('') || '<li class="muted">Vacía</li>';
+}
+$('#adminList').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const id = Number(b.dataset.id);
+  if (b.dataset.a === 'del') emit('admin:remove', { id });
+  else emit('admin:move', { id, dir: b.dataset.a });
+};
+
+let bannerT;
+function showBanner(html) {
+  const b = $('#banner');
+  b.innerHTML = html; b.classList.remove('hidden');
+  clearTimeout(bannerT);
+  bannerT = setTimeout(() => b.classList.add('hidden'), 5000);
+}
+
+// ---------- Reacciones flotantes ----------
+function floatEmoji(emoji) {
+  const el = document.createElement('div');
+  el.className = 'float';
+  el.textContent = emoji;
+  el.style.left = (5 + Math.random() * 85) + '%';
+  el.style.setProperty('--drift', (Math.random() * 120 - 60) + 'px');
+  el.style.fontSize = (40 + Math.random() * 40) + 'px';
+  $('#fx').appendChild(el);
+  setTimeout(() => el.remove(), 3200);
+}
+
+// ---------- Conexión (requiere PIN) ----------
+async function loadInfo() {
+  const r = await fetch('/api/info', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }) });
+  const info = await r.json();
+  if (!r.ok) throw new Error(info.error || 'PIN incorrecto');
+  $('#qr').src = info.qr;
+  $('#url').textContent = info.url.replace(/^https?:\/\//, '');
+  $('#salaCode').textContent = info.sala;
+  if (info.wifiQr) {
+    $('#wifiQr').src = info.wifiQr; $('#ssid').textContent = '📶 ' + info.ssid;
+    $('#wifiBox').classList.remove('hidden'); $('#step2').classList.remove('hidden');
+  }
+}
+
+function connect() {
+  socket = io({ auth: { pin } });
+  socket.on('state', (s) => { state = s; render(); });
+  socket.on('reaction', floatEmoji);
+  socket.on('admin-error', (m) => showBanner('🔒 ' + m));
+  socket.on('room-changed', () => loadInfo().then(() => showBanner('🔄 Nuevo código: <b>' + esc($('#salaCode').textContent) + '</b>')).catch(() => {}));
+  socket.on('connect_error', (err) => {
+    if (err.message === 'pin' || err.message === 'locked') {
+      socket.disconnect();
+      showBanner('🔒 Sesión del DJ inválida, recarga la página');
+    }
+  });
+}
+
+$('#startBtn').onclick = async () => {
+  pin = $('#pin').value.trim();
+  if (!pin) { $('#pinMsg').textContent = 'Escribe el PIN'; return; }
+  $('#startBtn').disabled = true;
+  try {
+    await loadInfo();
+  } catch (e) {
+    $('#pinMsg').textContent = e.message;
+    $('#startBtn').disabled = false;
+    return;
+  }
+  try { sessionStorage.setItem('djpin', pin); } catch {}
+  connect();
+  started = true;
+  $('#controls').classList.remove('hidden');
+  $('#start').classList.add('hidden');
+  document.documentElement.requestFullscreen?.().catch(() => {});
+  sync();
+  // Mantener despierto el servidor gratis (Render se duerme sin tráfico)
+  setInterval(() => fetch('/healthz').catch(() => {}), 4 * 60e3);
+};
+$('#pin').onkeydown = (e) => e.key === 'Enter' && $('#startBtn').click();
+try { $('#pin').value = sessionStorage.getItem('djpin') || ''; } catch {}
+
+$('#btnSkip').onclick = () => emit('admin:next');
+$('#btnPause').onclick = () => {
+  if (!player) return;
+  player.getPlayerState() === YT.PlayerState.PLAYING ? player.pauseVideo() : player.playVideo();
+};
+$('#btnQueue').onclick = () => $('#adminPanel').classList.remove('hidden');
+$('#closeAdmin').onclick = () => $('#adminPanel').classList.add('hidden');
+$('#btnClear').onclick = () => confirm('¿Vaciar toda la cola?') && emit('admin:clear');
+$('#btnNewRoom').onclick = () => confirm('¿Cambiar el código? Para anotarse de nuevo tendrán que poner el código nuevo.') && emit('admin:newRoom');
+
+// Atajos de teclado: → saltar, espacio pausar
+document.addEventListener('keydown', (e) => {
+  if (!started || e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowRight') $('#btnSkip').click();
+  if (e.key === ' ') { e.preventDefault(); $('#btnPause').click(); }
+});
+</script>
+</body>
+</html>

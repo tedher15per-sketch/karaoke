@@ -1,0 +1,293 @@
+import 'dotenv/config';
+import express from 'express';
+import http from 'http';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
+import { fileURLToPath } from 'url';
+import { Server } from 'socket.io';
+import QRCode from 'qrcode';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const env = (k, d = '') => String(process.env[k] ?? d).trim();
+
+const PORT = Number(env('PORT', 3000)) || 3000;
+const ADMIN_PIN = env('ADMIN_PIN', '1234');
+const MAX_PER_PERSON = Number(env('MAX_PER_PERSON', 2));
+const SEARCH_SUFFIX = env('SEARCH_SUFFIX', 'karaoke');
+const YT_KEY = env('YOUTUBE_API_KEY');
+// Tope de búsquedas por día para no acabarse la cuota gratis (10,000 unidades = 100 búsquedas)
+const SEARCH_DAILY_LIMIT = Number(env('SEARCH_DAILY_LIMIT', 95));
+// En internet (Render) pon PUBLIC_URL=https://tu-app.onrender.com
+const PUBLIC_URL = env('PUBLIC_URL').replace(/\/+$/, '');
+const ONLINE = !!PUBLIC_URL;
+
+// ---------- Código de sala ----------
+// 4 letras sin las que se confunden (I, L, O, 0, 1). Fijo con ROOM_CODE o nuevo en cada arranque.
+const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+const newRoomCode = () => Array.from({ length: 4 }, () => ROOM_ALPHABET[crypto.randomInt(ROOM_ALPHABET.length)]).join('');
+let ROOM = (env('ROOM_CODE') || newRoomCode()).toUpperCase();
+const roomOk = (s) => String(s ?? '').trim().toUpperCase() === ROOM;
+
+// ---------- Estado en memoria ----------
+const state = { current: null, queue: [], history: [] };
+let nextId = 1;
+const publicState = () => ({ current: state.current, queue: state.queue, history: state.history.slice(-10) });
+
+// ---------- Red local ----------
+const VIRTUAL = /vethernet|virtualbox|vmware|wsl|hyper-v|loopback|bluetooth|docker|tailscale|zerotier|vpn/i;
+function lanCandidates() {
+  const out = [];
+  for (const [name, ifaces] of Object.entries(os.networkInterfaces())) {
+    for (const i of ifaces || []) {
+      if (i.family !== 'IPv4' || i.internal || i.address.startsWith('169.254.')) continue;
+      out.push({ name, address: i.address, virtual: VIRTUAL.test(name) });
+    }
+  }
+  return out.sort((a, b) => (a.virtual - b.virtual)
+    || (!b.address.startsWith('192.168.') - !a.address.startsWith('192.168.')));
+}
+const lanIP = () => lanCandidates()[0]?.address || 'localhost';
+const BASE_URL = PUBLIC_URL || `http://${env('PUBLIC_HOST') || lanIP()}:${PORT}`;
+const guestUrl = () => `${BASE_URL}/?sala=${ROOM}`;
+
+const WIFI_SSID = env('WIFI_SSID');
+const WIFI_PASS = env('WIFI_PASS');
+const wifiEsc = (v) => v.replace(/([\\;,:"])/g, '\\$1');
+
+// ---------- Utilidades ----------
+const clean = (s, max = 60) => String(s ?? '').replace(/[<>]/g, '').trim().slice(0, max);
+const decodeHtml = (s) => s
+  .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+  .replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+const VIDEO_ID = /^[\w-]{11}$/;
+function youtubeId(text) {
+  const m = String(text).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{11})/);
+  return m ? m[1] : null;
+}
+
+// ---------- Seguridad: PIN con bloqueo y límites de búsqueda ----------
+const pinFails = new Map(); // ip -> { n, until }
+function checkPin(ip, pin) {
+  const now = Date.now();
+  let f = pinFails.get(ip);
+  if (f?.until && f.until <= now) { pinFails.delete(ip); f = null; }
+  if (f?.until > now) return 'locked';
+  if (String(pin ?? '') === ADMIN_PIN) { pinFails.delete(ip); return 'ok'; }
+  const n = (f?.n || 0) + 1;
+  pinFails.set(ip, { n, until: n >= 5 ? now + 10 * 60e3 : 0 });
+  return 'bad';
+}
+
+const perDevice = new Map(); // id -> [timestamps]
+function deviceAllowed(id) {
+  const now = Date.now();
+  const arr = (perDevice.get(id) || []).filter((t) => now - t < 10 * 60e3);
+  if (arr.length && now - arr[arr.length - 1] < 2500) return 'Espera tantito entre búsquedas ⏳';
+  if (arr.length >= 15) return 'Muchas búsquedas, espera unos minutos ⏳';
+  arr.push(now); perDevice.set(id, arr);
+  return null;
+}
+let daily = { day: '', count: 0 };
+function dailyAllowed() {
+  const day = new Date().toISOString().slice(0, 10);
+  if (daily.day !== day) daily = { day, count: 0 };
+  return daily.count < SEARCH_DAILY_LIMIT;
+}
+const searchCache = new Map(); // query -> { at, items }
+
+// ---------- App ----------
+const app = express();
+if (ONLINE) app.set('trust proxy', 1);
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.json({ limit: '10kb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/screen', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'screen.html')));
+app.get('/healthz', (_req, res) => res.send('ok'));
+
+const requireRoom = (req, res, next) => (roomOk(req.get('x-sala'))
+  ? next()
+  : res.status(401).json({ error: 'Código de sala incorrecto. Míralo en la pantalla 📺', sala: true }));
+
+// Validar código de sala
+app.post('/api/join', (req, res) => (roomOk(req.body?.sala)
+  ? res.json({ ok: true })
+  : res.status(401).json({ error: 'Ese código no es. Míralo en la pantalla 📺' })));
+
+// Info para la pantalla del DJ (requiere PIN)
+app.post('/api/info', async (req, res) => {
+  const r = checkPin(req.ip, req.body?.pin);
+  if (r !== 'ok') return res.status(401).json({ error: r === 'locked' ? 'Demasiados intentos, espera 10 min' : 'PIN incorrecto' });
+  const url = guestUrl();
+  const qr = await QRCode.toDataURL(url, { margin: 1, width: 400 });
+  let wifiQr = null;
+  if (WIFI_SSID) {
+    const auth = WIFI_PASS ? `T:WPA;P:${wifiEsc(WIFI_PASS)};` : 'T:nopass;';
+    wifiQr = await QRCode.toDataURL(`WIFI:S:${wifiEsc(WIFI_SSID)};${auth};`, { margin: 1, width: 400 });
+  }
+  res.json({ url: BASE_URL, sala: ROOM, qr, wifiQr, ssid: WIFI_SSID });
+});
+
+// Miniaturas servidas desde aquí: así el WiFi cerrado solo necesita permitir este dominio
+app.get('/thumb/:id', async (req, res) => {
+  const id = req.params.id;
+  if (!VIDEO_ID.test(id)) return res.sendStatus(400);
+  try {
+    const r = await fetch(`https://i.ytimg.com/vi/${id}/mqdefault.jpg`);
+    if (!r.ok) return res.sendStatus(404);
+    res.set('Content-Type', 'image/jpeg').set('Cache-Control', 'public, max-age=86400');
+    res.send(Buffer.from(await r.arrayBuffer()));
+  } catch { res.sendStatus(502); }
+});
+
+// Búsqueda en YouTube (solo videos embebibles)
+app.get('/api/search', requireRoom, async (req, res) => {
+  const raw = String(req.query.q ?? '').trim();
+  const q = clean(raw, 100);
+  if (!q) return res.json([]);
+
+  // ¿Pegaron un link? Se resuelve sin gastar cuota (oEmbed)
+  const linkId = youtubeId(raw);
+  if (linkId) {
+    try {
+      const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + linkId)}`);
+      if (!r.ok) return res.status(404).json({ error: 'Ese video no existe o no se puede embeber' });
+      const d = await r.json();
+      return res.json([{ videoId: linkId, title: clean(d.title, 120), channel: clean(d.author_name, 60) }]);
+    } catch {
+      return res.status(502).json({ error: 'No se pudo conectar con YouTube' });
+    }
+  }
+  if (!YT_KEY) return res.status(500).json({ error: 'Sin API key: pega el link del video de YouTube 🔗' });
+
+  const key = q.toLowerCase();
+  const hit = searchCache.get(key);
+  if (hit && Date.now() - hit.at < 6 * 3600e3) return res.json(hit.items);
+
+  const limited = deviceAllowed(clean(req.get('x-cliente'), 40) || req.ip);
+  if (limited) return res.status(429).json({ error: limited });
+  if (!dailyAllowed()) return res.status(429).json({ error: 'Se acabaron las búsquedas de hoy. Pega el link de YouTube 🔗' });
+
+  const params = new URLSearchParams({
+    part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '12',
+    q: `${q} ${SEARCH_SUFFIX}`.trim(), key: YT_KEY,
+  });
+  try {
+    daily.count++;
+    const r = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`);
+    const data = await r.json();
+    if (!r.ok) return res.status(502).json({ error: data?.error?.message || 'Error de YouTube' });
+    const items = data.items.map((it) => ({
+      videoId: it.id.videoId,
+      title: decodeHtml(it.snippet.title),
+      channel: decodeHtml(it.snippet.channelTitle),
+    }));
+    searchCache.set(key, { at: Date.now(), items });
+    if (searchCache.size > 500) searchCache.delete(searchCache.keys().next().value);
+    res.json(items);
+  } catch {
+    res.status(502).json({ error: 'No se pudo conectar con YouTube' });
+  }
+});
+
+// Anotarse
+app.post('/api/queue', requireRoom, (req, res) => {
+  const name = clean(req.body.name, 30);
+  const videoId = clean(req.body.videoId, 20);
+  const title = clean(req.body.title, 120);
+  if (!name || !VIDEO_ID.test(videoId)) return res.status(400).json({ error: 'Falta tu nombre o la canción' });
+
+  const mine = [state.current, ...state.queue]
+    .filter((s) => s && s.name.toLowerCase() === name.toLowerCase()).length;
+  if (MAX_PER_PERSON > 0 && mine >= MAX_PER_PERSON) {
+    return res.status(429).json({ error: `Ya tienes ${mine} canciones en cola. Espera tu turno 🎤` });
+  }
+  const entry = { id: nextId++, name, videoId, title, addedAt: Date.now() };
+  state.queue.push(entry);
+  if (!state.current) advance(); // si no hay nada sonando, arranca solo
+  broadcast();
+  res.json({ ok: true, entry, position: state.queue.findIndex((s) => s.id === entry.id) + 1 });
+});
+
+function advance() {
+  if (state.current) state.history.push(state.current);
+  state.current = state.queue.shift() || null;
+}
+function broadcast() { io.emit('state', publicState()); }
+
+// ---------- Tiempo real ----------
+const socketIp = (socket) => (ONLINE
+  ? String(socket.handshake.headers['x-forwarded-for'] || '').split(',')[0].trim()
+  : '') || socket.handshake.address;
+
+// Nadie entra sin código de sala (invitados) o PIN (pantalla del DJ)
+io.use((socket, next) => {
+  const { sala, pin } = socket.handshake.auth || {};
+  if (pin != null && pin !== '') {
+    const r = checkPin(socketIp(socket), pin);
+    if (r === 'ok') { socket.data.dj = true; return next(); }
+    return next(new Error(r === 'locked' ? 'locked' : 'pin'));
+  }
+  if (roomOk(sala)) return next();
+  next(new Error('sala'));
+});
+
+const REACTIONS = ['👏', '🔥', '❤️', '😂', '🎉', '🤘', '😍', '🙌'];
+const lastReaction = new Map();
+
+io.on('connection', (socket) => {
+  socket.emit('state', publicState());
+
+  socket.on('reaction', (emoji) => {
+    if (!REACTIONS.includes(emoji)) return;
+    const now = Date.now();
+    if (now - (lastReaction.get(socket.id) || 0) < 250) return;
+    lastReaction.set(socket.id, now);
+    io.emit('reaction', emoji);
+  });
+
+  // ---- Solo la pantalla del DJ ----
+  const dj = (fn) => (payload = {}) => {
+    if (!socket.data.dj) return socket.emit('admin-error', 'Solo el DJ puede hacer eso');
+    fn(payload || {});
+    broadcast();
+  };
+  socket.on('screen:ended', dj(({ id }) => {
+    if (state.current && state.current.id === id) advance();
+  }));
+  socket.on('admin:next', dj(() => advance()));
+  socket.on('admin:remove', dj(({ id }) => { state.queue = state.queue.filter((s) => s.id !== id); }));
+  socket.on('admin:move', dj(({ id, dir }) => {
+    const i = state.queue.findIndex((s) => s.id === id);
+    const j = i + (dir === 'up' ? -1 : 1);
+    if (i < 0 || j < 0 || j >= state.queue.length) return;
+    [state.queue[i], state.queue[j]] = [state.queue[j], state.queue[i]];
+  }));
+  socket.on('admin:clear', dj(() => { state.queue = []; }));
+  // Cambiar el código si se filtró (los que ya están dentro siguen conectados)
+  socket.on('admin:newRoom', dj(() => { ROOM = newRoomCode(); io.emit('room-changed'); }));
+
+  socket.on('disconnect', () => lastReaction.delete(socket.id));
+});
+
+server.listen(PORT, '0.0.0.0', () => {
+  const modo = ONLINE ? 'EN INTERNET' : env('PUBLIC_HOST') ? 'RED AISLADA' : 'PRUEBAS (WiFi de casa)';
+  console.log(`\n🎤  Karaoke Party listo  ·  modo ${modo}`);
+  console.log(`   Código de sala: ${ROOM}`);
+  console.log(`   Invitados:  ${BASE_URL}`);
+  console.log(`   Pantalla:   ${ONLINE ? BASE_URL : `http://localhost:${PORT}`}/screen`);
+  if (!ONLINE) {
+    const cands = lanCandidates();
+    if (cands.length > 1) {
+      console.log('   Otras IPs detectadas (si el QR no abre, pon la correcta en PUBLIC_HOST):');
+      cands.slice(1).forEach((c) => console.log(`     - ${c.address}  (${c.name})`));
+    }
+  }
+  if (ONLINE && (ADMIN_PIN === '1234' || ADMIN_PIN.length < 6)) {
+    console.log('   ⚠️  Estás en internet: usa un ADMIN_PIN de 6+ dígitos que no sea 1234');
+  }
+  if (!YT_KEY) console.log('   ⚠️  Sin YOUTUBE_API_KEY: los invitados pueden pegar links de YouTube');
+  console.log('');
+});

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Karaoke 🎤</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="guest">
+  <header class="g-header">
+    <h1>🎤 Karaoke</h1>
+    <div id="myTurn" class="pill hidden"></div>
+  </header>
+
+  <!-- Paso 0: código de sala -->
+  <section id="salaStep" class="card hidden">
+    <label for="salaInput">Código de la sala</label>
+    <p class="muted hint">Son 4 letras, salen en la pantalla 📺</p>
+    <input id="salaInput" class="code-input" maxlength="4" placeholder="ABCD" autocomplete="off" autocapitalize="characters">
+    <div id="salaMsg" class="msg err"></div>
+    <button id="salaBtn" class="btn primary">Entrar a la sala</button>
+  </section>
+
+  <!-- Paso 1: nombre -->
+  <section id="nameStep" class="card hidden">
+    <label for="nameInput">¿Cómo te llamas?</label>
+    <input id="nameInput" maxlength="30" placeholder="Tu nombre" autocomplete="off">
+    <button id="nameBtn" class="btn primary">Entrar</button>
+  </section>
+
+  <!-- Paso 2: buscar -->
+  <section id="searchStep" class="hidden">
+    <div class="hello">Hola <b id="helloName"></b> · <a href="#" id="changeName">cambiar</a></div>
+    <form id="searchForm" class="search">
+      <input id="q" placeholder="Canción, artista o link de YouTube…" autocomplete="off">
+      <button class="btn primary">Buscar</button>
+    </form>
+    <div id="msg" class="msg"></div>
+    <ul id="results" class="results"></ul>
+
+    <h2 class="sub">Sonando ahora</h2>
+    <div id="nowPlaying" class="np muted">Nadie aún — ¡sé el primero!</div>
+
+    <h2 class="sub">Próximos</h2>
+    <ol id="queue" class="queue"></ol>
+  </section>
+
+  <!-- Reacciones -->
+  <nav id="reactions" class="reactions hidden">
+    <button>👏</button><button>🔥</button><button>❤️</button><button>😂</button>
+    <button>🎉</button><button>🤘</button><button>😍</button><button>🙌</button>
+  </nav>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+const show = (id) => ['#salaStep', '#nameStep', '#searchStep'].forEach((s) => $(s).classList.toggle('hidden', s !== id));
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const store = {
+  get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+
+// Id anónimo del dispositivo (para el límite de búsquedas)
+let clientId = store.get('karaokeClient');
+if (!clientId) { clientId = Math.random().toString(36).slice(2, 12); store.set('karaokeClient', clientId); }
+
+let sala = '';
+let myName = '';
+let socket = null;
+let state = { current: null, queue: [] };
+
+const api = (url, opts = {}) => fetch(url, {
+  ...opts,
+  headers: { 'Content-Type': 'application/json', 'x-sala': sala, 'x-cliente': clientId, ...(opts.headers || {}) },
+});
+
+// ---------- Sala ----------
+async function joinRoom(code, fromUser) {
+  code = String(code || '').trim().toUpperCase();
+  if (code.length !== 4) { if (fromUser) $('#salaMsg').textContent = 'Son 4 letras'; return false; }
+  try {
+    const r = await fetch('/api/join', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sala: code }) });
+    if (!r.ok) { $('#salaMsg').textContent = (await r.json()).error; return false; }
+  } catch { $('#salaMsg').textContent = 'Sin conexión con el servidor'; return false; }
+  sala = code;
+  store.set('karaokeSala', sala);
+  connect();
+  $('#reactions').classList.remove('hidden');
+  myName ? show('#searchStep') : show('#nameStep');
+  render();
+  return true;
+}
+function askRoom(msg = '') {
+  sala = '';
+  if (socket) { socket.disconnect(); socket = null; }
+  $('#salaMsg').textContent = msg;
+  $('#reactions').classList.add('hidden');
+  show('#salaStep');
+  setTimeout(() => $('#salaInput').focus(), 50);
+}
+$('#salaBtn').onclick = () => joinRoom($('#salaInput').value, true);
+$('#salaInput').oninput = (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, ''); };
+$('#salaInput').onkeydown = (e) => e.key === 'Enter' && joinRoom(e.target.value, true);
+
+function connect() {
+  if (socket) socket.disconnect();
+  socket = io({ auth: { sala } });
+  socket.on('state', (s) => { state = s; render(); });
+  socket.on('connect_error', (err) => {
+    if (err.message === 'sala') askRoom('El código cambió. Míralo en la pantalla 📺');
+  });
+}
+
+// ---------- Nombre ----------
+function setName(n) {
+  myName = n.trim();
+  if (!myName) return;
+  store.set('karaokeName', myName);
+  $('#helloName').textContent = myName;
+  show('#searchStep');
+  render();
+}
+$('#nameBtn').onclick = () => setName($('#nameInput').value);
+$('#nameInput').onkeydown = (e) => e.key === 'Enter' && setName(e.target.value);
+$('#changeName').onclick = (e) => { e.preventDefault(); show('#nameStep'); $('#nameInput').value = myName; };
+
+function flash(text, type = '') { const m = $('#msg'); m.textContent = text; m.className = 'msg ' + type; }
+
+// ---------- Buscar y anotarse ----------
+$('#searchForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $('#q').value.trim();
+  if (!q) return;
+  $('#q').blur();
+  flash('Buscando…');
+  $('#results').innerHTML = '';
+  try {
+    const r = await api('/api/search?q=' + encodeURIComponent(q));
+    const data = await r.json();
+    if (r.status === 401 && data.sala) return askRoom(data.error);
+    if (!r.ok) return flash(data.error || 'Error al buscar', 'err');
+    flash(data.length ? '' : 'Sin resultados, prueba con otro nombre');
+    $('#results').innerHTML = data.map((v, i) => `
+      <li>
+        <img src="/thumb/${esc(v.videoId)}" alt="" loading="lazy">
+        <div class="info"><div class="t">${esc(v.title)}</div><div class="c">${esc(v.channel)}</div></div>
+        <button class="btn primary small" data-i="${i}">Anotarme</button>
+      </li>`).join('');
+    $('#results').querySelectorAll('button').forEach((b) => { b.onclick = () => signUp(data[b.dataset.i], b); });
+  } catch { flash('Sin conexión con el servidor', 'err'); }
+};
+
+async function signUp(v, btn) {
+  btn.disabled = true;
+  try {
+    const r = await api('/api/queue', { method: 'POST', body: JSON.stringify({ name: myName, videoId: v.videoId, title: v.title }) });
+    const data = await r.json();
+    if (r.status === 401 && data.sala) return askRoom(data.error);
+    if (!r.ok) { btn.disabled = false; return flash(data.error, 'err'); }
+    flash(data.position ? `¡Anotado! Vas en el lugar #${data.position} 🎤` : '¡Te toca ya! 🎤', 'ok');
+    $('#results').innerHTML = '';
+    $('#q').value = '';
+    if (navigator.vibrate) navigator.vibrate(80);
+  } catch { btn.disabled = false; flash('Sin conexión con el servidor', 'err'); }
+}
+
+// ---------- Cola ----------
+function render() {
+  const { current, queue } = state;
+  $('#nowPlaying').innerHTML = current
+    ? `<b>${esc(current.name)}</b> — ${esc(current.title)}`
+    : 'Nadie aún — ¡sé el primero!';
+  $('#queue').innerHTML = queue.length
+    ? queue.map((s) => `<li class="${s.name === myName ? 'me' : ''}"><b>${esc(s.name)}</b><span>${esc(s.title)}</span></li>`).join('')
+    : '<li class="muted">La cola está vacía</li>';
+
+  const pill = $('#myTurn');
+  if (!myName || !sala) return pill.classList.add('hidden');
+  const pos = queue.findIndex((s) => s.name === myName);
+  if (current && current.name === myName) {
+    pill.textContent = '🎤 ¡Te toca!'; pill.className = 'pill live';
+  } else if (pos >= 0) {
+    pill.textContent = pos === 0 ? '⏭️ Sigues tú' : `Tu turno: #${pos + 1}`;
+    pill.className = 'pill' + (pos === 0 ? ' soon' : '');
+  } else pill.className = 'pill hidden';
+}
+
+document.querySelectorAll('.reactions button').forEach((b) => {
+  b.onclick = () => {
+    if (!socket) return;
+    socket.emit('reaction', b.textContent);
+    b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
+  };
+});
+
+// ---------- Arranque ----------
+myName = store.get('karaokeName');
+if (myName) $('#helloName').textContent = myName;
+const params = new URLSearchParams(location.search);
+const fromQr = params.get('sala');
+if (fromQr) history.replaceState(null, '', location.pathname); // no dejar el código en la barra
+(async () => {
+  if (await joinRoom(fromQr || store.get('karaokeSala'))) return;
+  askRoom(fromQr ? 'Ese código ya no es válido. Míralo en la pantalla 📺' : '');
+})();
+</script>
+</body>
+</html>
