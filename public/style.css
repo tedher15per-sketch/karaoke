@@ -136,8 +136,13 @@ input:focus { border-color: var(--pink); }
 .admin-list span { display: flex; gap: 4px; flex-shrink: 0; }
 
 @media (max-width: 900px) {
-  .stage { grid-template-columns: 1fr; grid-template-rows: 56vh 1fr; }
-  .qr-row { display: none; }
+  .screen { height: auto; overflow: auto; }
+  .stage { grid-template-columns: 1fr; grid-template-rows: 40vh auto; height: auto; min-height: 100vh; }
+  .side { overflow: visible; padding: 16px; }
+  .idle h2 { font-size: 36px; }
+  .idle p { font-size: 18px; }
+  .qr-row { margin-top: 8px; }
+  .qr-box img { max-width: 170px; }
 }
 
 /* ---- Código de sala ---- */
