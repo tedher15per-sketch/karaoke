@@ -222,7 +222,7 @@ $('#startBtn').onclick = async () => {
   // Mantener despierto el servidor gratis (Render se duerme sin tráfico)
   setInterval(() => fetch('/healthz').catch(() => {}), 4 * 60e3);
 };
-$('#pin').onkeydown = (e) => e.key === 'Enter' && $('#startBtn').click();
+$('#pin').onkeydown = (e) => { if (e.key === 'Enter') $('#startBtn').click(); };
 try { $('#pin').value = sessionStorage.getItem('djpin') || ''; } catch {}
 
 $('#btnSkip').onclick = () => emit('admin:next');

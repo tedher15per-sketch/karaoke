@@ -101,7 +101,7 @@ function askRoom(msg = '') {
 }
 $('#salaBtn').onclick = () => joinRoom($('#salaInput').value, true);
 $('#salaInput').oninput = (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z]/g, ''); };
-$('#salaInput').onkeydown = (e) => e.key === 'Enter' && joinRoom(e.target.value, true);
+$('#salaInput').onkeydown = (e) => { if (e.key === 'Enter') joinRoom(e.target.value, true); };
 
 function connect() {
   if (socket) socket.disconnect();
@@ -122,7 +122,7 @@ function setName(n) {
   render();
 }
 $('#nameBtn').onclick = () => setName($('#nameInput').value);
-$('#nameInput').onkeydown = (e) => e.key === 'Enter' && setName(e.target.value);
+$('#nameInput').onkeydown = (e) => { if (e.key === 'Enter') setName(e.target.value); };
 $('#changeName').onclick = (e) => { e.preventDefault(); show('#nameStep'); $('#nameInput').value = myName; };
 
 function flash(text, type = '') { const m = $('#msg'); m.textContent = text; m.className = 'msg ' + type; }
