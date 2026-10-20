@@ -102,17 +102,22 @@ Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel t
 - **YouTube Premium:** inicia sesión en youtube.com en el navegador de la pantalla y se van los anuncios.
 - **Código filtrado:** 📋 → 🔄 Nuevo código. Los que ya estaban ven la cola, pero para anotarse piden el código nuevo.
 
-## 🎵 Géneros
-- **En el cel:** arriba del buscador hay una lista de géneros (Salsa, Cumbia, Banda, Rock en español…). El que elijas se agrega a tu búsqueda.
-- **Ronda del DJ:** en la pantalla, el selector **🎵 Ronda** fuerza un género para todos (ej. "Ronda de Salsa"). A los invitados se les esconde la lista y ven el aviso de la ronda. Elige *Todos los géneros* para terminarla.
-- Los géneros se editan en la lista `GENRES` de `server.js`. Pegar un link de YouTube no se filtra.
+## 🎵 Géneros (validados de verdad)
+El género de cada canción se revisa en el catálogo de Apple Music (iTunes, gratis, sin clave). Con un género activo, la búsqueda es en 2 pasos: **1)** sale la lista de canciones que sí son de ese género, **2)** eliges una y salen sus karaokes.
+
+- **En el cel:** la fila de géneros arriba del buscador es un filtro voluntario.
+- **Ronda del DJ** (selector **🎵 Ronda** en la pantalla): obligatoria para todos. Solo se pueden anotar videos que salieron de una canción validada, y **no se aceptan links pegados**. *Todos los géneros* termina la ronda.
+- Géneros: Salsa y tropical (salsa, cumbia, bachata, merengue), Música mexicana (banda, norteño, mariachi, corridos, grupera), Reggaetón / urbano, Pop en español, Rock en español, Baladas y boleros, Pop en inglés, Rock en inglés, Ochenteras (lanzadas de 1978 a 1992) e Infantiles.
+- Apple no separa salsa de cumbia ni banda de norteño; por eso van agrupados.
+- Si iTunes no responde: en ronda pide intentar de nuevo; con el filtro voluntario busca normal.
+- La lista está en `GENRES` dentro de `server.js`.
 
 ## 🎭 Concurso de disfraces
-1. En la pantalla del DJ dale **🎭 Concurso de disfraces**.
-2. Elige cuántos participantes (1 a 50) y, si quieres, escribe su nombre o disfraz. Dale **Iniciar concurso**: el karaoke se pausa y salen los participantes numerados en la tele.
-3. **🗳️ Abrir votación**: a todos los celulares les aparece una tarjeta para votar. Un voto por cel; se puede cambiar mientras siga abierta. En la tele solo se ve cuántos votos van (para mantener el suspenso).
-4. **🏁 Cerrar votación**: se muestra el ganador con 👑, las barras de votos y confeti. Si hay empate, salen todos los empatados.
-5. **✕ Terminar concurso**: se borran los votos y el karaoke sigue donde iba. (**↩️ Reabrir** vuelve a abrir la votación sin borrar votos.)
+1. **🎭 Concurso de disfraces** → número de participantes (1–50) y nombres opcionales → **Iniciar concurso** (el karaoke se pausa).
+2. **🗳️ Abrir votación**: un voto por cel, se puede cambiar mientras siga abierta. En la tele solo se ve cuántos votos van.
+3. **🏁 Cerrar votación**: aparece el podio vacío.
+4. Un clic por lugar: **🥉 Revelar 3er lugar → 🥈 2do → 🥇 1er**. Solo se muestran esos tres (empates comparten lugar; quien no tuvo votos no entra). Al revelar el 1º salen la corona y el confeti, y los celulares van viendo lo mismo.
+5. **✕ Terminar concurso**: el karaoke sigue donde iba.
 
 ## Problemas comunes
 - **El cel no abre la página (local)** → mismo WiFi, red *Privada* y `ABRIR-FIREWALL.bat`. Si el router tiene "aislamiento de clientes", desactívalo.

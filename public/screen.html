@@ -236,23 +236,30 @@ function renderContest() {
   contestWasActive = active;
   if (!active) return;
 
-  const { phase, candidates, total, counts } = contest;
+  const { phase, candidates, total } = contest;
+  const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+  const ORD = { 1: '1er', 2: '2do', 3: '3er' };
   let body = '';
+  let next = null; // siguiente lugar por revelar
   if (phase === 'results') {
-    const max = Math.max(0, ...Object.values(counts));
-    const sorted = [...candidates].sort((a, b) => counts[b.id] - counts[a.id]);
-    const winners = sorted.filter((c) => max > 0 && counts[c.id] === max);
-    body = `
-      <div class="c-winner">${winners.length
-        ? `👑 ${winners.length > 1 ? '¡Empate!' : '¡Ganador!'}<b>${winners.map((w) => `#${w.id} ${esc(w.name)}`).join(' · ')}</b>`
-        : 'Nadie votó 😅'}</div>
-      <ol class="c-results">${sorted.map((c) => {
-        const pct = total ? Math.round((counts[c.id] / total) * 100) : 0;
-        return `<li class="${winners.includes(c) ? 'win' : ''}">
-          <span class="c-num">${c.id}</span><span class="c-name">${esc(c.name)}</span>
-          <span class="c-bar"><i style="width:${pct}%"></i></span>
-          <span class="c-votes">${counts[c.id]} voto${counts[c.id] === 1 ? '' : 's'}</span></li>`;
-      }).join('')}</ol>`;
+    const { steps, revealed, places } = contest;
+    next = revealed < steps ? steps - revealed : null;
+    const slot = (place) => {
+      if (place > steps) return '';
+      const p = places.find((x) => x.place === place);
+      return `<div class="pod pod-${place} ${p ? 'shown' : ''}">
+        <div class="pod-who">${p
+          ? `${place === 1 ? '<div class="crown">👑</div>' : ''}${p.candidates.map((c) =>
+              `<div><span class="c-num">${c.id}</span><b>${esc(c.name)}</b></div>`).join('')}
+             <small>${p.votes} voto${p.votes === 1 ? '' : 's'}${p.candidates.length > 1 ? ' · empate' : ''}</small>`
+          : '<div class="pod-q">?</div>'}</div>
+        <div class="pod-base">${MEDAL[place]}<span>${ORD[place]} lugar</span></div>
+      </div>`;
+    };
+    body = steps
+      ? `<div class="c-status">${next ? `${total} votos · ¿quién ganó?` : '🎉 ¡Felicidades a los ganadores!'}</div>
+         <div class="podium">${slot(2)}${slot(1)}${slot(3)}</div>`
+      : '<div class="c-winner">Nadie votó 😅</div>';
   } else {
     body = `
       <div class="c-status">${phase === 'voting'
@@ -263,16 +270,18 @@ function renderContest() {
   }
   const actions = {
     ready: '<button class="btn primary" data-c="open">🗳️ Abrir votación</button>',
-    voting: '<button class="btn primary" data-c="close">🏁 Cerrar votación y ver ganador</button>',
-    results: '<button class="btn" data-c="open">↩️ Reabrir votación</button>',
+    voting: '<button class="btn primary" data-c="close">🏁 Cerrar votación</button>',
+    results: next
+      ? `<button class="btn primary big" data-c="reveal">${MEDAL[next]} Revelar ${ORD[next]} lugar</button>`
+      : '<button class="btn" data-c="open">↩️ Reabrir votación</button>',
   }[phase];
   v.innerHTML = `<div class="c-inner">
       <h2>🎭 Concurso de disfraces</h2>
       ${body}
       <div class="c-actions">${actions}<button class="btn danger" data-c="end">✕ Terminar concurso</button></div>
     </div>`;
-  if (phase === 'results' && counts && Object.values(counts).some((n) => n > 0)) {
-    for (let i = 0; i < 24; i++) setTimeout(() => floatEmoji(['🎉', '👑', '✨', '👏'][i % 4]), i * 120);
+  if (phase === 'results' && contest.steps && contest.revealed === contest.steps) {
+    for (let i = 0; i < 30; i++) setTimeout(() => floatEmoji(['🎉', '👑', '✨', '👏', '🥇'][i % 5]), i * 110);
   }
 }
 $('#contestView').onclick = (e) => {
@@ -319,10 +328,10 @@ function connect() {
   });
   socket.on('reaction', floatEmoji);
   socket.on('contest', (c) => {
-    const prevPhase = contest?.phase;
+    const prev = contest;
     contest = c;
-    // Re-dibujar solo cuando cambia la fase o los votos (evita confeti repetido)
-    if (!c || prevPhase !== c.phase || c.phase !== 'results') renderContest();
+    // En resultados, re-dibujar solo cuando se revela un lugar (evita confeti repetido)
+    if (!c || prev?.phase !== c.phase || c.phase !== 'results' || prev.revealed !== c.revealed) renderContest();
   });
   socket.on('admin-error', (m) => showBanner('🔒 ' + m));
   socket.on('room-changed', () => loadInfo().then(() => showBanner('🔄 Nuevo código: <b>' + esc($('#salaCode').textContent) + '</b>')).catch(() => {}));

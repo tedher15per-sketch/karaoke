@@ -37,6 +37,7 @@
     <div id="mySong" class="my-song hidden"></div>
     <div id="roundBanner" class="round-banner hidden"></div>
     <div id="genreChips" class="chips"></div>
+    <div id="genreHint" class="genre-hint hidden"></div>
     <form id="searchForm" class="search">
       <input id="q" placeholder="Canción, artista o link de YouTube…" autocomplete="off">
       <button class="btn primary">Buscar</button>
@@ -143,6 +144,46 @@ $('#changeName').onclick = (e) => { e.preventDefault(); show('#nameStep'); $('#n
 function flash(text, type = '') { const m = $('#msg'); m.textContent = text; m.className = 'msg ' + type; }
 
 // ---------- Buscar y anotarse ----------
+function showVideos(data) {
+  flash(data.length ? '' : 'Sin resultados, prueba con otro nombre');
+  $('#results').innerHTML = data.map((v, i) => `
+    <li>
+      <img src="/thumb/${esc(v.videoId)}" alt="" loading="lazy">
+      <div class="info"><div class="t">${esc(v.title)}</div><div class="c">${esc(v.channel)}</div></div>
+      <button class="btn primary small" data-i="${i}">Anotarme</button>
+    </li>`).join('');
+  $('#results').querySelectorAll('button').forEach((b) => { b.onclick = () => signUp(data[b.dataset.i], b); });
+}
+
+// Con género: primero eliges la canción (ya validada) y luego su video de karaoke
+function showTracks(tracks) {
+  const g = genres.find((x) => x.id === (round || myGenre));
+  flash(`${g ? g.emoji + ' ' : ''}Elige tu canción:`, 'ok');
+  $('#results').innerHTML = tracks.map((t, i) => `
+    <li class="track">
+      ${t.art ? `<img class="art" src="${esc(t.art)}" alt="" loading="lazy" onerror="this.remove()">` : '<div class="art">🎵</div>'}
+      <div class="info"><div class="t">${esc(t.track)}</div><div class="c">${esc(t.artist)}${t.year ? ' · ' + esc(t.year) : ''}</div></div>
+      <button class="btn small" data-i="${i}">Elegir</button>
+    </li>`).join('');
+  $('#results').querySelectorAll('button').forEach((b) => { b.onclick = () => pickTrack(tracks[b.dataset.i], tracks); });
+}
+async function pickTrack(t, tracks) {
+  flash(`Buscando karaoke de "${t.track}"…`);
+  $('#results').innerHTML = '';
+  try {
+    const r = await api('/api/search/track?id=' + encodeURIComponent(t.id));
+    const data = await r.json();
+    if (r.status === 401 && data.sala) return askRoom(data.error);
+    if (!r.ok) return flash(data.error || 'Error al buscar', 'err');
+    showVideos(data);
+    const back = document.createElement('li');
+    back.className = 'back';
+    back.innerHTML = '<a href="#">← Elegir otra canción</a>';
+    back.querySelector('a').onclick = (e) => { e.preventDefault(); showTracks(tracks); };
+    $('#results').prepend(back);
+  } catch { flash('Sin conexión con el servidor', 'err'); }
+}
+
 $('#searchForm').onsubmit = async (e) => {
   e.preventDefault();
   const q = $('#q').value.trim();
@@ -155,14 +196,7 @@ $('#searchForm').onsubmit = async (e) => {
     const data = await r.json();
     if (r.status === 401 && data.sala) return askRoom(data.error);
     if (!r.ok) return flash(data.error || 'Error al buscar', 'err');
-    flash(data.length ? '' : 'Sin resultados, prueba con otro nombre');
-    $('#results').innerHTML = data.map((v, i) => `
-      <li>
-        <img src="/thumb/${esc(v.videoId)}" alt="" loading="lazy">
-        <div class="info"><div class="t">${esc(v.title)}</div><div class="c">${esc(v.channel)}</div></div>
-        <button class="btn primary small" data-i="${i}">Anotarme</button>
-      </li>`).join('');
-    $('#results').querySelectorAll('button').forEach((b) => { b.onclick = () => signUp(data[b.dataset.i], b); });
+    data.tracks ? showTracks(data.tracks) : showVideos(data);
   } catch { flash('Sin conexión con el servidor', 'err'); }
 };
 
@@ -238,7 +272,10 @@ fetch('/api/genres').then((r) => r.json()).then((d) => { genres = d.genres; roun
 function renderGenres() {
   const g = genres.find((x) => x.id === round);
   $('#roundBanner').classList.toggle('hidden', !g);
-  if (g) $('#roundBanner').innerHTML = `${g.emoji} <b>Ronda de ${esc(g.label)}</b> · las búsquedas son solo de ${esc(g.label.toLowerCase())}`;
+  if (g) $('#roundBanner').innerHTML = `${g.emoji} <b>Ronda de ${esc(g.label)}</b> · solo se vale ${esc(g.hint || g.label.toLowerCase())}`;
+  const mine = !g && genres.find((x) => x.id === myGenre);
+  $('#genreHint').classList.toggle('hidden', !mine);
+  if (mine) $('#genreHint').textContent = `Solo saldrán canciones de ${mine.label}${mine.hint ? ' (' + mine.hint + ')' : ''}`;
   $('#genreChips').classList.toggle('hidden', !!g || !genres.length);
   $('#genreChips').innerHTML = [{ id: '', label: 'Todos', emoji: '🎶' }, ...genres].map((x) =>
     `<button type="button" class="chip ${(myGenre || '') === x.id ? 'on' : ''}" data-g="${x.id}">${x.emoji} ${esc(x.label)}</button>`).join('');
@@ -259,7 +296,7 @@ function renderContest() {
   const card = $('#contestCard');
   card.classList.toggle('hidden', !contest || !sala);
   if (!contest) return;
-  const { phase, candidates, counts, total } = contest;
+  const { phase, candidates, total } = contest;
   if (phase === 'ready') {
     card.innerHTML = '<div class="label">🎭 CONCURSO DE DISFRACES</div><b>¡Prepárate! En un momento se abre la votación</b>';
   } else if (phase === 'voting') {
@@ -270,10 +307,14 @@ function renderContest() {
           <span class="c-num">${c.id}</span><span>${esc(c.name)}</span>${myVote === c.id ? '<em>✓</em>' : ''}
         </button>`).join('')}</div>`;
   } else {
-    const max = Math.max(0, ...Object.values(counts));
-    const winners = candidates.filter((c) => max > 0 && counts[c.id] === max);
+    const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
+    const { steps, revealed, places } = contest;
+    const lines = [...places].sort((a, b) => a.place - b.place).map((p) =>
+      `<div class="pod-line">${MEDAL[p.place]} ${p.candidates.map((c) => `#${c.id} ${esc(c.name)}`).join(' · ')}
+       <small>${p.votes} voto${p.votes === 1 ? '' : 's'}</small></div>`).join('');
     card.innerHTML = `<div class="label">🏁 RESULTADOS · ${total} voto${total === 1 ? '' : 's'}</div>
-      <b>${winners.length ? '👑 ' + winners.map((w) => `#${w.id} ${esc(w.name)}`).join(' · ') : 'Nadie votó'}</b>
+      ${!steps ? '<b>Nadie votó</b>' : revealed < steps ? '<b>🥁 Revelando lugares… mira la pantalla</b>' : '<b>🎉 ¡Tenemos ganador!</b>'}
+      ${lines}
       ${myVote ? `<small>Tú votaste por el #${myVote}</small>` : ''}`;
   }
 }

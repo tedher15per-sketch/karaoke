@@ -18,29 +18,28 @@ const ADMIN_PIN = env('ADMIN_PIN', '1234');
 const MAX_PER_PERSON = Number(env('MAX_PER_PERSON', 1));
 const SEARCH_SUFFIX = env('SEARCH_SUFFIX', 'karaoke');
 
-// Géneros para acotar la búsqueda (term = lo que se agrega a la búsqueda de YouTube)
+// Géneros. Se validan con el catálogo de Apple Music (iTunes), que dice el género real de cada canción.
+// match = expresión contra el género de iTunes (sin acentos, minúsculas); years = rango de año de lanzamiento.
+// Apple agrupa salsa, cumbia, bachata y merengue como "Salsa y tropical", y banda/norteño/mariachi como "Música mexicana".
 const GENRES = [
-  { id: 'salsa', label: 'Salsa', emoji: '💃', term: 'salsa' },
-  { id: 'cumbia', label: 'Cumbia', emoji: '🪇', term: 'cumbia' },
-  { id: 'bachata', label: 'Bachata', emoji: '🌹', term: 'bachata' },
-  { id: 'merengue', label: 'Merengue', emoji: '🥁', term: 'merengue' },
-  { id: 'reggaeton', label: 'Reggaetón', emoji: '🔥', term: 'reggaeton' },
-  { id: 'banda', label: 'Banda', emoji: '🎺', term: 'banda sinaloense' },
-  { id: 'norteno', label: 'Norteño', emoji: '🪗', term: 'norteño' },
-  { id: 'ranchera', label: 'Ranchera / Mariachi', emoji: '🤠', term: 'ranchera mariachi' },
-  { id: 'grupera', label: 'Grupera', emoji: '💔', term: 'grupera' },
-  { id: 'corridos', label: 'Corridos', emoji: '🐎', term: 'corridos' },
-  { id: 'baladas', label: 'Baladas', emoji: '🥹', term: 'balada romántica' },
-  { id: 'boleros', label: 'Boleros', emoji: '🌙', term: 'bolero' },
-  { id: 'pop-es', label: 'Pop en español', emoji: '🎤', term: 'pop en español' },
-  { id: 'rock-es', label: 'Rock en español', emoji: '🤘', term: 'rock en español' },
-  { id: 'pop-en', label: 'Pop en inglés', emoji: '🇺🇸', term: 'english pop' },
-  { id: 'rock-en', label: 'Rock en inglés', emoji: '🎸', term: 'classic rock' },
-  { id: 'ochentas', label: 'Ochenteras', emoji: '🕺', term: '80s' },
-  { id: 'infantil', label: 'Infantiles', emoji: '🧸', term: 'infantil' },
+  { id: 'tropical', label: 'Salsa y tropical', emoji: '💃', hint: 'salsa, cumbia, bachata, merengue', match: /salsa|tropical|cumbia|merengue|bachata/ },
+  { id: 'mexicana', label: 'Música mexicana', emoji: '🤠', hint: 'banda, norteño, mariachi, corridos, grupera', match: /mexican|ranchera|norten|banda|grupero|mariachi|corrido/ },
+  { id: 'urbano', label: 'Reggaetón / urbano', emoji: '🔥', hint: 'reggaetón, trap latino', match: /urban|reggae|latin hip|hip.?hop|rap|trap/ },
+  { id: 'pop-es', label: 'Pop en español', emoji: '🎤', match: /pop en espanol|pop latino|latin pop/ },
+  { id: 'rock-es', label: 'Rock en español', emoji: '🤘', match: /rock en espanol|rock latino|latin rock|latin alternative/ },
+  { id: 'baladas', label: 'Baladas y boleros', emoji: '🌙', match: /balada|bolero/ },
+  { id: 'pop-en', label: 'Pop en inglés', emoji: '🇺🇸', match: /^(pop|dance|disco|electronica?|k-pop|pop\/rock|teen pop|adult contemporary)$/ },
+  { id: 'rock-en', label: 'Rock en inglés', emoji: '🎸', match: /^(rock|hard rock|metal|heavy metal|punk|alternativa|alternative|classic rock|rock y alternativo|indie rock|grunge)$/ },
+  { id: 'ochentas', label: 'Ochenteras', emoji: '🕺', hint: 'canciones de 1978 a 1992', years: [1978, 1992] },
+  { id: 'infantil', label: 'Infantiles', emoji: '🧸', match: /infantil|children|ninos|kids/ },
 ];
 const genreById = (id) => GENRES.find((g) => g.id === id) || null;
 let djGenre = null; // ronda del DJ: si está puesta, manda sobre lo que elija cada invitado
+const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const fitsGenre = (genre, t) => {
+  if (genre.years) { const y = Number(String(t.releaseDate || '').slice(0, 4)); return y >= genre.years[0] && y <= genre.years[1]; }
+  return genre.match.test(norm(t.primaryGenreName));
+};
 const YT_KEY = env('YOUTUBE_API_KEY');
 // Tope de búsquedas por día para no acabarse la cuota gratis (10,000 unidades = 100 búsquedas)
 const SEARCH_DAILY_LIMIT = Number(env('SEARCH_DAILY_LIMIT', 95));
@@ -170,16 +169,68 @@ app.get('/thumb/:id', async (req, res) => {
 });
 
 // Búsqueda en YouTube (solo videos embebibles)
-app.get('/api/genres', (_req, res) => res.json({ genres: GENRES.map(({ term, ...g }) => g), round: djGenre?.id || null }));
+app.get('/api/genres', (_req, res) => res.json({
+  genres: GENRES.map(({ id, label, emoji, hint }) => ({ id, label, emoji, hint })),
+  round: djGenre?.id || null,
+}));
+
+// ---------- Catálogo de iTunes (para validar géneros) ----------
+const itunesCache = new Map(); // término → { at, tracks }
+async function itunesSearch(q) {
+  const key = norm(q);
+  const hit = itunesCache.get(key);
+  if (hit && Date.now() - hit.at < 12 * 3600e3) return hit.tracks;
+  const r = await fetch(`https://itunes.apple.com/search?country=mx&media=music&entity=song&limit=50&term=${encodeURIComponent(q)}`);
+  if (!r.ok) throw new Error('itunes ' + r.status);
+  const tracks = (await r.json()).results || [];
+  itunesCache.set(key, { at: Date.now(), tracks });
+  if (itunesCache.size > 800) itunesCache.delete(itunesCache.keys().next().value);
+  return tracks;
+}
+// Canciones ya validadas (id corto → datos) y videos aprobados para la ronda (videoId → género)
+const trackTokens = new Map();
+const approvedVideos = new Map();
+const remember = (map, k, v, max = 3000) => { map.set(k, { ...v, at: Date.now() }); if (map.size > max) map.delete(map.keys().next().value); };
+
+// Búsqueda de karaoke en YouTube (con caché, límites por cel y tope diario)
+async function youtubeSearch(req, query) {
+  const key = norm(query);
+  const hit = searchCache.get(key);
+  if (hit && Date.now() - hit.at < 6 * 3600e3) return { items: hit.items };
+  const limited = deviceAllowed(clean(req.get('x-cliente'), 40) || req.ip);
+  if (limited) return { status: 429, error: limited };
+  if (!dailyAllowed()) return { status: 429, error: 'Se acabaron las búsquedas de hoy. Pega el link de YouTube 🔗' };
+  const params = new URLSearchParams({
+    part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '12', q: query, key: YT_KEY,
+  });
+  try {
+    daily.count++;
+    const r = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`);
+    const data = await r.json();
+    if (!r.ok) return { status: 502, error: data?.error?.message || 'Error de YouTube' };
+    const items = data.items.map((it) => ({
+      videoId: it.id.videoId,
+      title: decodeHtml(it.snippet.title),
+      channel: decodeHtml(it.snippet.channelTitle),
+    }));
+    searchCache.set(key, { at: Date.now(), items });
+    if (searchCache.size > 500) searchCache.delete(searchCache.keys().next().value);
+    return { items };
+  } catch {
+    return { status: 502, error: 'No se pudo conectar con YouTube' };
+  }
+}
 
 app.get('/api/search', requireRoom, async (req, res) => {
   const raw = String(req.query.q ?? '').trim();
   const q = clean(raw, 100);
   if (!q) return res.json([]);
+  const genre = djGenre || genreById(String(req.query.genero || ''));
 
-  // ¿Pegaron un link? Se resuelve sin gastar cuota (oEmbed)
+  // ¿Pegaron un link? Se resuelve sin gastar cuota (oEmbed). En ronda no se vale: no hay cómo validar el género.
   const linkId = youtubeId(raw);
   if (linkId) {
+    if (djGenre) return res.status(403).json({ error: `Durante la ronda de ${djGenre.label} no se pueden pegar links. Busca por nombre 🔎` });
     try {
       const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + linkId)}`);
       if (!r.ok) return res.status(404).json({ error: 'Ese video no existe o no se puede embeber' });
@@ -191,35 +242,53 @@ app.get('/api/search', requireRoom, async (req, res) => {
   }
   if (!YT_KEY) return res.status(500).json({ error: 'Sin API key: pega el link del video de YouTube 🔗' });
 
-  const genre = djGenre || genreById(String(req.query.genero || ''));
-  const key = `${genre?.id || ''}|${q.toLowerCase()}`;
-  const hit = searchCache.get(key);
-  if (hit && Date.now() - hit.at < 6 * 3600e3) return res.json(hit.items);
-
-  const limited = deviceAllowed(clean(req.get('x-cliente'), 40) || req.ip);
-  if (limited) return res.status(429).json({ error: limited });
-  if (!dailyAllowed()) return res.status(429).json({ error: 'Se acabaron las búsquedas de hoy. Pega el link de YouTube 🔗' });
-
-  const params = new URLSearchParams({
-    part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '12',
-    q: `${q} ${genre?.term || ''} ${SEARCH_SUFFIX}`.replace(/\s+/g, ' ').trim(), key: YT_KEY,
-  });
-  try {
-    daily.count++;
-    const r = await fetch(`https://www.googleapis.com/youtube/v3/search?${params}`);
-    const data = await r.json();
-    if (!r.ok) return res.status(502).json({ error: data?.error?.message || 'Error de YouTube' });
-    const items = data.items.map((it) => ({
-      videoId: it.id.videoId,
-      title: decodeHtml(it.snippet.title),
-      channel: decodeHtml(it.snippet.channelTitle),
-    }));
-    searchCache.set(key, { at: Date.now(), items });
-    if (searchCache.size > 500) searchCache.delete(searchCache.keys().next().value);
-    res.json(items);
-  } catch {
-    res.status(502).json({ error: 'No se pudo conectar con YouTube' });
+  // Con género: primero se buscan canciones reales en iTunes y solo se dejan las de ese género
+  if (genre) {
+    let tracks;
+    try {
+      tracks = await itunesSearch(q);
+    } catch {
+      if (djGenre) return res.status(503).json({ error: 'No pude revisar el género ahorita. Intenta otra vez en unos segundos ⏳' });
+      tracks = null; // filtro voluntario: si iTunes falla, se busca normal
+    }
+    if (tracks) {
+      const seen = new Set();
+      const list = [];
+      for (const t of tracks) {
+        if (!t.trackName || !fitsGenre(genre, t)) continue;
+        const k = norm(t.trackName.replace(/\s*[([].*?[)\]]/g, '')) + '|' + norm(t.artistName);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const id = crypto.randomBytes(6).toString('hex');
+        remember(trackTokens, id, { track: t.trackName, artist: t.artistName, genreId: genre.id });
+        list.push({
+          id, track: clean(t.trackName, 100), artist: clean(t.artistName, 80),
+          year: String(t.releaseDate || '').slice(0, 4), genre: clean(t.primaryGenreName, 40),
+          art: /^https:\/\/[\w.-]+\.mzstatic\.com\//.test(t.artworkUrl100 || '') ? t.artworkUrl100 : null,
+        });
+        if (list.length >= 10) break;
+      }
+      if (!list.length) {
+        return res.status(404).json({ error: `No encontré "${q}" en ${genre.label} ${genre.emoji}. Prueba con otra canción o artista.` });
+      }
+      return res.json({ tracks: list, genre: genre.id });
+    }
   }
+
+  const r = await youtubeSearch(req, `${q} ${SEARCH_SUFFIX}`);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  res.json(r.items);
+});
+
+// Paso 2 con género: de la canción validada a sus videos de karaoke
+app.get('/api/search/track', requireRoom, async (req, res) => {
+  const t = trackTokens.get(String(req.query.id || ''));
+  if (!t) return res.status(404).json({ error: 'Vuelve a buscar la canción 🔎' });
+  if (!YT_KEY) return res.status(500).json({ error: 'Falta la API key de YouTube' });
+  const r = await youtubeSearch(req, `${t.track} ${t.artist} ${SEARCH_SUFFIX}`);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  for (const it of r.items) remember(approvedVideos, it.videoId, { genreId: t.genreId });
+  res.json(r.items);
 });
 
 // Anotarse
@@ -228,6 +297,9 @@ app.post('/api/queue', requireRoom, (req, res) => {
   const videoId = clean(req.body.videoId, 20);
   const title = clean(req.body.title, 120);
   if (!name || !VIDEO_ID.test(videoId)) return res.status(400).json({ error: 'Falta tu nombre o la canción' });
+  if (djGenre && approvedVideos.get(videoId)?.genreId !== djGenre.id) {
+    return res.status(403).json({ error: `En la ronda de ${djGenre.label} solo se vale ${djGenre.label.toLowerCase()} ${djGenre.emoji}. Búscala otra vez.` });
+  }
 
   // Se cuenta por nombre y por dispositivo, para que cambiarse el nombre no sirva de truco
   const owner = clean(req.get('x-cliente'), 40) || req.ip;
@@ -255,13 +327,26 @@ function broadcast() { io.emit('state', publicState()); }
 // phase: 'ready' (participantes listos) → 'voting' (se puede votar) → 'results' (ganador)
 let contest = null; // { phase, candidates: [{ id, name }], votes: Map(votante → id) }
 const MAX_CANDIDATES = 50;
+// Podio: hasta 3 lugares (empates comparten lugar), solo candidatos con votos
+function buildPodium() {
+  const counts = new Map(contest.candidates.map((c) => [c.id, 0]));
+  for (const id of contest.votes.values()) counts.set(id, counts.get(id) + 1);
+  const distinct = [...new Set([...counts.values()].filter((n) => n > 0))].sort((a, b) => b - a).slice(0, 3);
+  return distinct.map((votes, i) => ({
+    place: i + 1,
+    votes,
+    candidates: contest.candidates.filter((c) => counts.get(c.id) === votes),
+  }));
+}
 function contestPublic() {
   if (!contest) return null;
   const out = { phase: contest.phase, candidates: contest.candidates, total: contest.votes.size };
   if (contest.phase === 'results') {
-    const counts = Object.fromEntries(contest.candidates.map((c) => [c.id, 0]));
-    for (const id of contest.votes.values()) counts[id]++;
-    out.counts = counts;
+    const steps = contest.podium.length;
+    out.steps = steps;
+    out.revealed = contest.revealed;
+    // Se revela de abajo hacia arriba: 3º, luego 2º, al final 1º
+    out.places = contest.podium.filter((p) => p.place > steps - contest.revealed);
   }
   return out;
 }
@@ -356,7 +441,15 @@ io.on('connection', (socket) => {
     if (contest.phase === 'ready') contest.votes.clear();
     contest.phase = 'voting';
   }));
-  socket.on('contest:close', djContest(() => { if (contest) contest.phase = 'results'; }));
+  socket.on('contest:close', djContest(() => {
+    if (!contest || contest.phase !== 'voting') return;
+    contest.phase = 'results';
+    contest.podium = buildPodium(); // se congela al cerrar
+    contest.revealed = 0;
+  }));
+  socket.on('contest:reveal', djContest(() => {
+    if (contest?.phase === 'results') contest.revealed = Math.min(contest.podium.length, contest.revealed + 1);
+  }));
   socket.on('contest:end', djContest(() => { contest = null; }));
 
   // Ronda de un solo género (null = todos)
