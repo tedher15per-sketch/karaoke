@@ -98,6 +98,7 @@ Un MikroTik hAP hace lo mismo con *hotspot + walled garden*, aísla de verdad la
 Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel tiene límite (1 cada 2.5 s, 15 cada 10 min) y pegar un link no gasta cuota.
 
 ## En la fiesta
+- **QR:** si configuraste el WiFi, arriba del QR hay dos botones (**📶 WiFi** / **🎤 Karaoke**) para elegir cuál se ve. Clic en el QR (o tecla **G**) lo pone en grande; tecla **Q** cambia entre los dos.
 - **Pantalla:** ⏯️ pausa, ⏭️ saltar, 📋 cola (reordenar, borrar, vaciar, 🔄 nuevo código de sala). Teclado: **→** saltar, **espacio** pausar.
 - **YouTube Premium:** inicia sesión en youtube.com en el navegador de la pantalla y se van los anuncios.
 - **Código filtrado:** 📋 → 🔄 Nuevo código. Los que ya estaban ven la cola, pero para anotarse piden el código nuevo.

@@ -111,11 +111,11 @@ input:focus { border-color: var(--pink); }
 .next b { display: block; font-size: 20px; }
 .next small { color: var(--muted); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
 .more { color: var(--muted); font-size: 14px; }
-.qr-row { margin-top: auto; display: flex; gap: 8px; }
-.qr-row .qr-box { flex: 1; }
+.qr-row { margin-top: auto; display: grid; gap: 8px; }
 .qr-step { color: #000; font-weight: 800; font-size: 13px; margin-bottom: 4px; }
 .qr-box { background: #fff; border-radius: var(--radius); padding: 12px; text-align: center; }
-.qr-box img { width: 100%; max-width: 220px; display: block; margin: 0 auto; }
+.qr-box { cursor: zoom-in; }
+.qr-box img { width: 100%; max-width: 260px; display: block; margin: 0 auto; }
 .url { color: #000; font-weight: 700; font-size: 15px; margin-top: 4px; }
 .controls { display: flex; gap: 8px; }
 .controls .btn { flex: 1; }
@@ -258,3 +258,14 @@ input:focus { border-color: var(--pink); }
 .help-steps span { color: var(--muted); font-size: 14px; line-height: 1.4; }
 .help-steps i { color: var(--text); font-style: normal; font-weight: 700; }
 .help-foot { margin: 0; color: var(--muted); font-size: 13px; text-align: center; }
+
+/* ---- Selector de QR y QR en grande ---- */
+.qr-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.qr-tab { border: 0; border-radius: 10px; padding: 8px; font: inherit; font-weight: 700; cursor: pointer;
+  background: var(--panel-2); color: var(--muted); }
+.qr-tab.on { background: linear-gradient(135deg, var(--pink), #b83cff); color: #fff; }
+.qr-big { cursor: zoom-out; z-index: 25; }
+.qr-big-box { background: #fff; border-radius: 24px; padding: 24px; text-align: center; display: grid; gap: 10px; }
+.qr-big-box img { width: min(70vh, 80vw); height: auto; }
+.qr-big-label { color: #000; font-size: clamp(22px, 3vw, 40px); font-weight: 900; }
+.qr-big-sub { color: #333; font-size: clamp(16px, 2vw, 26px); font-weight: 700; }

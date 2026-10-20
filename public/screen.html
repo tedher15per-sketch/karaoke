@@ -44,13 +44,18 @@
       <div id="more" class="more"></div>
 
       <div class="qr-row">
-        <div id="wifiBox" class="qr-box hidden">
-          <div class="qr-step">1 · Conéctate</div>
+        <!-- Solo se ve un QR a la vez; el DJ elige cuál -->
+        <div id="qrTabs" class="qr-tabs hidden">
+          <button class="qr-tab" data-qr="wifi">📶 1 · WiFi</button>
+          <button class="qr-tab on" data-qr="app">🎤 2 · Karaoke</button>
+        </div>
+        <div id="wifiBox" class="qr-box hidden" title="Clic para agrandar">
+          <div class="qr-step">Conéctate al WiFi</div>
           <img id="wifiQr" alt="QR WiFi">
           <div id="ssid" class="url"></div>
         </div>
-        <div class="qr-box">
-          <div id="step2" class="qr-step hidden">2 · Anótate</div>
+        <div id="appBox" class="qr-box" title="Clic para agrandar">
+          <div id="step2" class="qr-step hidden">Escanea y anótate</div>
           <img id="qr" alt="QR">
           <div id="url" class="url"></div>
           <div class="sala">Sala <b id="salaCode">····</b></div>
@@ -69,6 +74,11 @@
       <button id="btnContest" class="btn contest-btn hidden">🎭 Concurso de disfraces</button>
     </aside>
   </main>
+
+  <!-- QR en grande -->
+  <div id="qrBig" class="overlay qr-big hidden" title="Clic para cerrar">
+    <div class="qr-big-box"><div id="qrBigLabel" class="qr-big-label"></div><img id="qrBigImg" alt="QR"><div id="qrBigSub" class="qr-big-sub"></div></div>
+  </div>
 
   <!-- Configurar concurso -->
   <div id="contestSetup" class="overlay hidden">
@@ -185,6 +195,30 @@ function showBanner(html) {
   clearTimeout(bannerT);
   bannerT = setTimeout(() => b.classList.add('hidden'), 5000);
 }
+
+// ---------- QR: elegir cuál se ve y agrandarlo ----------
+let qrMode = 'app';
+try { qrMode = localStorage.getItem('qrMode') || 'app'; } catch {}
+function showQr(mode) {
+  if (!$('#wifiQr').src) mode = 'app';
+  qrMode = mode;
+  try { localStorage.setItem('qrMode', mode); } catch {}
+  $('#wifiBox').classList.toggle('hidden', mode !== 'wifi');
+  $('#appBox').classList.toggle('hidden', mode !== 'app');
+  document.querySelectorAll('.qr-tab').forEach((b) => b.classList.toggle('on', b.dataset.qr === mode));
+  if (!$('#qrBig').classList.contains('hidden')) openBig();
+}
+function openBig() {
+  const wifi = qrMode === 'wifi';
+  $('#qrBigImg').src = wifi ? $('#wifiQr').src : $('#qr').src;
+  $('#qrBigLabel').textContent = wifi ? '📶 1 · Conéctate al WiFi' : '🎤 2 · Escanea y anótate';
+  $('#qrBigSub').textContent = wifi ? $('#ssid').textContent : `${$('#url').textContent} · Sala ${$('#salaCode').textContent}`;
+  $('#qrBig').classList.remove('hidden');
+}
+$('#qrTabs').onclick = (e) => { const b = e.target.closest('.qr-tab'); if (b) showQr(b.dataset.qr); };
+$('#wifiBox').onclick = openBig;
+$('#appBox').onclick = openBig;
+$('#qrBig').onclick = () => $('#qrBig').classList.add('hidden');
 
 // ---------- Ronda de un género ----------
 let genresList = [];
@@ -314,7 +348,8 @@ async function loadInfo() {
   $('#salaCode').textContent = info.sala;
   if (info.wifiQr) {
     $('#wifiQr').src = info.wifiQr; $('#ssid').textContent = '📶 ' + info.ssid;
-    $('#wifiBox').classList.remove('hidden'); $('#step2').classList.remove('hidden');
+    $('#qrTabs').classList.remove('hidden'); $('#step2').classList.remove('hidden');
+    showQr(qrMode);
   }
 }
 
@@ -385,6 +420,8 @@ $('#btnNewRoom').onclick = () => confirm('¿Cambiar el código? Para anotarse de
 document.addEventListener('keydown', (e) => {
   if (!started || e.target.tagName === 'INPUT') return;
   if (e.key === 'ArrowRight') $('#btnSkip').click();
+  if (e.key === 'q' || e.key === 'Q') showQr(qrMode === 'app' ? 'wifi' : 'app');
+  if (e.key === 'g' || e.key === 'G') $('#qrBig').classList.contains('hidden') ? openBig() : $('#qrBig').classList.add('hidden');
   if (e.key === ' ') { e.preventDefault(); $('#btnPause').click(); }
 });
 </script>
