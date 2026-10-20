@@ -102,6 +102,11 @@ Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel t
 - **YouTube Premium:** inicia sesión en youtube.com en el navegador de la pantalla y se van los anuncios.
 - **Código filtrado:** 📋 → 🔄 Nuevo código. Los que ya estaban ven la cola, pero para anotarse piden el código nuevo.
 
+## 🎵 Géneros
+- **En el cel:** arriba del buscador hay una lista de géneros (Salsa, Cumbia, Banda, Rock en español…). El que elijas se agrega a tu búsqueda.
+- **Ronda del DJ:** en la pantalla, el selector **🎵 Ronda** fuerza un género para todos (ej. "Ronda de Salsa"). A los invitados se les esconde la lista y ven el aviso de la ronda. Elige *Todos los géneros* para terminarla.
+- Los géneros se editan en la lista `GENRES` de `server.js`. Pegar un link de YouTube no se filtra.
+
 ## 🎭 Concurso de disfraces
 1. En la pantalla del DJ dale **🎭 Concurso de disfraces**.
 2. Elige cuántos participantes (1 a 50) y, si quieres, escribe su nombre o disfraz. Dale **Iniciar concurso**: el karaoke se pausa y salen los participantes numerados en la tele.

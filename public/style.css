@@ -202,3 +202,16 @@ input:focus { border-color: var(--pink); }
 .vote-btn .c-num { width: 38px; height: 38px; font-size: 18px; }
 .vote-btn em { margin-left: auto; font-style: normal; color: var(--yellow); font-size: 22px; }
 .vote-btn.mine { border-color: var(--yellow); background: #2a1640; }
+
+/* ================= Géneros ================= */
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 10px; margin-bottom: 4px; scrollbar-width: none; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex-shrink: 0; border: 1px solid var(--panel-2); background: var(--panel); color: var(--text);
+  border-radius: 99px; padding: 7px 12px; font: inherit; font-size: 14px; cursor: pointer; white-space: nowrap; }
+.chip.on { background: linear-gradient(135deg, var(--pink), #b83cff); border-color: transparent; color: #fff; font-weight: 700; }
+.round-banner { background: linear-gradient(135deg, var(--pink), #b83cff); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; }
+.round-box { display: flex; align-items: center; gap: 8px; background: var(--panel-2); border-radius: 10px; padding: 6px 10px; }
+.round-box label { font-weight: 700; white-space: nowrap; }
+.round-box select { flex: 1; min-width: 0; background: var(--panel); color: var(--text); border: 1px solid var(--panel-2);
+  border-radius: 8px; padding: 8px; font: inherit; }
+.round-box.active { outline: 2px solid var(--pink); }

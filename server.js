@@ -17,6 +17,30 @@ const ADMIN_PIN = env('ADMIN_PIN', '1234');
 // Canciones por persona en cola (incluida la que está sonando). 1 = cantas y luego puedes agregar otra.
 const MAX_PER_PERSON = Number(env('MAX_PER_PERSON', 1));
 const SEARCH_SUFFIX = env('SEARCH_SUFFIX', 'karaoke');
+
+// Géneros para acotar la búsqueda (term = lo que se agrega a la búsqueda de YouTube)
+const GENRES = [
+  { id: 'salsa', label: 'Salsa', emoji: '💃', term: 'salsa' },
+  { id: 'cumbia', label: 'Cumbia', emoji: '🪇', term: 'cumbia' },
+  { id: 'bachata', label: 'Bachata', emoji: '🌹', term: 'bachata' },
+  { id: 'merengue', label: 'Merengue', emoji: '🥁', term: 'merengue' },
+  { id: 'reggaeton', label: 'Reggaetón', emoji: '🔥', term: 'reggaeton' },
+  { id: 'banda', label: 'Banda', emoji: '🎺', term: 'banda sinaloense' },
+  { id: 'norteno', label: 'Norteño', emoji: '🪗', term: 'norteño' },
+  { id: 'ranchera', label: 'Ranchera / Mariachi', emoji: '🤠', term: 'ranchera mariachi' },
+  { id: 'grupera', label: 'Grupera', emoji: '💔', term: 'grupera' },
+  { id: 'corridos', label: 'Corridos', emoji: '🐎', term: 'corridos' },
+  { id: 'baladas', label: 'Baladas', emoji: '🥹', term: 'balada romántica' },
+  { id: 'boleros', label: 'Boleros', emoji: '🌙', term: 'bolero' },
+  { id: 'pop-es', label: 'Pop en español', emoji: '🎤', term: 'pop en español' },
+  { id: 'rock-es', label: 'Rock en español', emoji: '🤘', term: 'rock en español' },
+  { id: 'pop-en', label: 'Pop en inglés', emoji: '🇺🇸', term: 'english pop' },
+  { id: 'rock-en', label: 'Rock en inglés', emoji: '🎸', term: 'classic rock' },
+  { id: 'ochentas', label: 'Ochenteras', emoji: '🕺', term: '80s' },
+  { id: 'infantil', label: 'Infantiles', emoji: '🧸', term: 'infantil' },
+];
+const genreById = (id) => GENRES.find((g) => g.id === id) || null;
+let djGenre = null; // ronda del DJ: si está puesta, manda sobre lo que elija cada invitado
 const YT_KEY = env('YOUTUBE_API_KEY');
 // Tope de búsquedas por día para no acabarse la cuota gratis (10,000 unidades = 100 búsquedas)
 const SEARCH_DAILY_LIMIT = Number(env('SEARCH_DAILY_LIMIT', 95));
@@ -146,6 +170,8 @@ app.get('/thumb/:id', async (req, res) => {
 });
 
 // Búsqueda en YouTube (solo videos embebibles)
+app.get('/api/genres', (_req, res) => res.json({ genres: GENRES.map(({ term, ...g }) => g), round: djGenre?.id || null }));
+
 app.get('/api/search', requireRoom, async (req, res) => {
   const raw = String(req.query.q ?? '').trim();
   const q = clean(raw, 100);
@@ -165,7 +191,8 @@ app.get('/api/search', requireRoom, async (req, res) => {
   }
   if (!YT_KEY) return res.status(500).json({ error: 'Sin API key: pega el link del video de YouTube 🔗' });
 
-  const key = q.toLowerCase();
+  const genre = djGenre || genreById(String(req.query.genero || ''));
+  const key = `${genre?.id || ''}|${q.toLowerCase()}`;
   const hit = searchCache.get(key);
   if (hit && Date.now() - hit.at < 6 * 3600e3) return res.json(hit.items);
 
@@ -175,7 +202,7 @@ app.get('/api/search', requireRoom, async (req, res) => {
 
   const params = new URLSearchParams({
     part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '12',
-    q: `${q} ${SEARCH_SUFFIX}`.trim(), key: YT_KEY,
+    q: `${q} ${genre?.term || ''} ${SEARCH_SUFFIX}`.replace(/\s+/g, ' ').trim(), key: YT_KEY,
   });
   try {
     daily.count++;
@@ -266,6 +293,7 @@ const lastReaction = new Map();
 io.on('connection', (socket) => {
   socket.emit('state', publicState());
   socket.emit('contest', contestPublic());
+  socket.emit('genre', djGenre?.id || null);
   if (contest && socket.data.voter && contest.votes.has(socket.data.voter)) {
     socket.emit('contest:myVote', contest.votes.get(socket.data.voter));
   }
@@ -330,6 +358,13 @@ io.on('connection', (socket) => {
   }));
   socket.on('contest:close', djContest(() => { if (contest) contest.phase = 'results'; }));
   socket.on('contest:end', djContest(() => { contest = null; }));
+
+  // Ronda de un solo género (null = todos)
+  socket.on('admin:genre', ({ id } = {}) => {
+    if (!socket.data.dj) return socket.emit('admin-error', 'Solo el DJ puede hacer eso');
+    djGenre = genreById(id);
+    io.emit('genre', djGenre?.id || null);
+  });
 
   socket.on('admin:newRoom', dj(() => { ROOM = newRoomCode(); io.emit('room-changed'); }));
 

@@ -35,6 +35,8 @@
   <section id="searchStep" class="hidden">
     <div class="hello">Hola <b id="helloName"></b> · <a href="#" id="changeName">cambiar</a></div>
     <div id="mySong" class="my-song hidden"></div>
+    <div id="roundBanner" class="round-banner hidden"></div>
+    <div id="genreChips" class="chips"></div>
     <form id="searchForm" class="search">
       <input id="q" placeholder="Canción, artista o link de YouTube…" autocomplete="off">
       <button class="btn primary">Buscar</button>
@@ -112,6 +114,7 @@ function connect() {
   if (socket) socket.disconnect();
   socket = io({ auth: { sala, cliente: clientId } });
   socket.on('state', (s) => { state = s; render(); });
+  socket.on('genre', (id) => { round = id; renderGenres(); });
   socket.on('contest', (c) => {
     // El servidor borra los votos al abrir desde 'listos' o al iniciar otro concurso
     if (!c || c.phase === 'ready' || (c.phase === 'voting' && contest?.phase === 'ready')) myVote = null;
@@ -148,7 +151,7 @@ $('#searchForm').onsubmit = async (e) => {
   flash('Buscando…');
   $('#results').innerHTML = '';
   try {
-    const r = await api('/api/search?q=' + encodeURIComponent(q));
+    const r = await api('/api/search?q=' + encodeURIComponent(q) + (myGenre && !round ? '&genero=' + myGenre : ''));
     const data = await r.json();
     if (r.status === 401 && data.sala) return askRoom(data.error);
     if (!r.ok) return flash(data.error || 'Error al buscar', 'err');
@@ -226,6 +229,28 @@ document.querySelectorAll('.reactions button').forEach((b) => {
     b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
   };
 });
+
+// ---------- Géneros ----------
+let genres = [];
+let myGenre = store.get('karaokeGenero');
+let round = null; // ronda del DJ
+fetch('/api/genres').then((r) => r.json()).then((d) => { genres = d.genres; round = d.round; renderGenres(); }).catch(() => {});
+function renderGenres() {
+  const g = genres.find((x) => x.id === round);
+  $('#roundBanner').classList.toggle('hidden', !g);
+  if (g) $('#roundBanner').innerHTML = `${g.emoji} <b>Ronda de ${esc(g.label)}</b> · las búsquedas son solo de ${esc(g.label.toLowerCase())}`;
+  $('#genreChips').classList.toggle('hidden', !!g || !genres.length);
+  $('#genreChips').innerHTML = [{ id: '', label: 'Todos', emoji: '🎶' }, ...genres].map((x) =>
+    `<button type="button" class="chip ${(myGenre || '') === x.id ? 'on' : ''}" data-g="${x.id}">${x.emoji} ${esc(x.label)}</button>`).join('');
+  const label = g ? g.label : genres.find((x) => x.id === myGenre)?.label;
+  $('#q').placeholder = label ? `Buscar en ${label}…` : 'Canción, artista o link de YouTube…';
+}
+$('#genreChips').onclick = (e) => {
+  const b = e.target.closest('.chip'); if (!b) return;
+  myGenre = b.dataset.g; store.set('karaokeGenero', myGenre);
+  renderGenres();
+  if ($('#q').value.trim()) $('#searchForm').requestSubmit();
+};
 
 // ---------- Concurso de disfraces ----------
 let contest = null;

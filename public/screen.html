@@ -62,6 +62,10 @@
         <button id="btnSkip" class="btn">⏭️ Saltar</button>
         <button id="btnQueue" class="btn">📋 Cola</button>
       </div>
+      <div id="roundBox" class="round-box hidden">
+        <label for="roundSel">🎵 Ronda</label>
+        <select id="roundSel"><option value="">Todos los géneros</option></select>
+      </div>
       <button id="btnContest" class="btn contest-btn hidden">🎭 Concurso de disfraces</button>
     </aside>
   </main>
@@ -182,6 +186,16 @@ function showBanner(html) {
   bannerT = setTimeout(() => b.classList.add('hidden'), 5000);
 }
 
+// ---------- Ronda de un género ----------
+let genresList = [];
+fetch('/api/genres').then((r) => r.json()).then((d) => {
+  genresList = d.genres;
+  $('#roundSel').innerHTML = '<option value="">Todos los géneros</option>' +
+    d.genres.map((g) => `<option value="${g.id}">${g.emoji} ${esc(g.label)}</option>`).join('');
+  $('#roundSel').value = d.round || '';
+}).catch(() => {});
+$('#roundSel').onchange = (e) => emit('admin:genre', { id: e.target.value || null });
+
 // ---------- Concurso de disfraces ----------
 let contest = null;
 let contestWasActive = false;
@@ -296,6 +310,13 @@ async function loadInfo() {
 function connect() {
   socket = io({ auth: { pin } });
   socket.on('state', (s) => { state = s; render(); });
+  socket.on('genre', (id) => {
+    const changed = $('#roundSel').value !== (id || '');
+    $('#roundSel').value = id || '';
+    $('#roundBox').classList.toggle('active', !!id);
+    const g = genresList.find((x) => x.id === id);
+    if (changed && started) showBanner(g ? `${g.emoji} ¡Ronda de <b>${esc(g.label)}</b>!` : '🎶 Se acabó la ronda: todos los géneros');
+  });
   socket.on('reaction', floatEmoji);
   socket.on('contest', (c) => {
     const prevPhase = contest?.phase;
@@ -329,6 +350,7 @@ $('#startBtn').onclick = async () => {
   started = true;
   $('#controls').classList.remove('hidden');
   $('#btnContest').classList.remove('hidden');
+  $('#roundBox').classList.remove('hidden');
   $('#start').classList.add('hidden');
   document.documentElement.requestFullscreen?.().catch(() => {});
   sync();
