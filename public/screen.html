@@ -28,6 +28,7 @@
         </div>
       </div>
       <div id="banner" class="banner hidden"></div>
+      <div id="contestView" class="contest hidden"></div>
       <div id="fx" class="fx"></div>
     </div>
 
@@ -61,8 +62,28 @@
         <button id="btnSkip" class="btn">⏭️ Saltar</button>
         <button id="btnQueue" class="btn">📋 Cola</button>
       </div>
+      <button id="btnContest" class="btn contest-btn hidden">🎭 Concurso de disfraces</button>
     </aside>
   </main>
+
+  <!-- Configurar concurso -->
+  <div id="contestSetup" class="overlay hidden">
+    <div class="admin-box">
+      <div class="admin-head">
+        <h2>🎭 Concurso de disfraces</h2>
+        <button id="closeSetup" class="btn">✕</button>
+      </div>
+      <label class="setup-label">¿Cuántos participantes?</label>
+      <div class="stepper">
+        <button id="cMinus" class="btn">−</button>
+        <input id="cCount" type="number" min="1" max="50" value="5">
+        <button id="cPlus" class="btn">+</button>
+      </div>
+      <label class="setup-label">Nombres o disfraces <span class="muted">(opcional)</span></label>
+      <ol id="cNames" class="names-list"></ol>
+      <button id="cStart" class="btn primary big">Iniciar concurso</button>
+    </div>
+  </div>
 
   <!-- Panel de administración de la cola -->
   <div id="adminPanel" class="overlay hidden">
@@ -161,6 +182,91 @@ function showBanner(html) {
   bannerT = setTimeout(() => b.classList.add('hidden'), 5000);
 }
 
+// ---------- Concurso de disfraces ----------
+let contest = null;
+let contestWasActive = false;
+
+function renderNameInputs() {
+  const n = Math.max(1, Math.min(50, Number($('#cCount').value) || 1));
+  $('#cCount').value = n;
+  const list = $('#cNames');
+  const prev = [...list.querySelectorAll('input')].map((i) => i.value);
+  list.innerHTML = Array.from({ length: n }, (_, i) =>
+    `<li><input maxlength="30" placeholder="Participante ${i + 1}" value="${esc(prev[i] || '')}"></li>`).join('');
+}
+$('#btnContest').onclick = () => {
+  if (contest) return; // ya hay uno: se controla desde la vista del concurso
+  renderNameInputs();
+  $('#contestSetup').classList.remove('hidden');
+};
+$('#closeSetup').onclick = () => $('#contestSetup').classList.add('hidden');
+$('#cMinus').onclick = () => { $('#cCount').value = Number($('#cCount').value) - 1; renderNameInputs(); };
+$('#cPlus').onclick = () => { $('#cCount').value = Number($('#cCount').value) + 1; renderNameInputs(); };
+$('#cCount').onchange = renderNameInputs;
+$('#cStart').onclick = () => {
+  const names = [...$('#cNames').querySelectorAll('input')].map((i) => i.value.trim());
+  emit('contest:start', { count: Number($('#cCount').value), names });
+  $('#contestSetup').classList.add('hidden');
+};
+
+function renderContest() {
+  const v = $('#contestView');
+  const active = !!contest;
+  v.classList.toggle('hidden', !active);
+  $('#btnContest').textContent = active ? '🎭 Concurso en curso' : '🎭 Concurso de disfraces';
+  // Pausar el karaoke mientras dura el concurso y reanudar al terminar
+  if (player && ytReady) {
+    if (active && !contestWasActive) player.pauseVideo?.();
+    if (!active && contestWasActive && state.current) player.playVideo?.();
+  }
+  contestWasActive = active;
+  if (!active) return;
+
+  const { phase, candidates, total, counts } = contest;
+  let body = '';
+  if (phase === 'results') {
+    const max = Math.max(0, ...Object.values(counts));
+    const sorted = [...candidates].sort((a, b) => counts[b.id] - counts[a.id]);
+    const winners = sorted.filter((c) => max > 0 && counts[c.id] === max);
+    body = `
+      <div class="c-winner">${winners.length
+        ? `👑 ${winners.length > 1 ? '¡Empate!' : '¡Ganador!'}<b>${winners.map((w) => `#${w.id} ${esc(w.name)}`).join(' · ')}</b>`
+        : 'Nadie votó 😅'}</div>
+      <ol class="c-results">${sorted.map((c) => {
+        const pct = total ? Math.round((counts[c.id] / total) * 100) : 0;
+        return `<li class="${winners.includes(c) ? 'win' : ''}">
+          <span class="c-num">${c.id}</span><span class="c-name">${esc(c.name)}</span>
+          <span class="c-bar"><i style="width:${pct}%"></i></span>
+          <span class="c-votes">${counts[c.id]} voto${counts[c.id] === 1 ? '' : 's'}</span></li>`;
+      }).join('')}</ol>`;
+  } else {
+    body = `
+      <div class="c-status">${phase === 'voting'
+        ? `🗳️ ¡Votación abierta! Vota desde tu cel · <b>${total}</b> voto${total === 1 ? '' : 's'}`
+        : 'Participantes listos · la votación abre en un momento'}</div>
+      <div class="c-grid">${candidates.map((c) => `
+        <div class="c-card"><span class="c-num">${c.id}</span><span class="c-name">${esc(c.name)}</span></div>`).join('')}</div>`;
+  }
+  const actions = {
+    ready: '<button class="btn primary" data-c="open">🗳️ Abrir votación</button>',
+    voting: '<button class="btn primary" data-c="close">🏁 Cerrar votación y ver ganador</button>',
+    results: '<button class="btn" data-c="open">↩️ Reabrir votación</button>',
+  }[phase];
+  v.innerHTML = `<div class="c-inner">
+      <h2>🎭 Concurso de disfraces</h2>
+      ${body}
+      <div class="c-actions">${actions}<button class="btn danger" data-c="end">✕ Terminar concurso</button></div>
+    </div>`;
+  if (phase === 'results' && counts && Object.values(counts).some((n) => n > 0)) {
+    for (let i = 0; i < 24; i++) setTimeout(() => floatEmoji(['🎉', '👑', '✨', '👏'][i % 4]), i * 120);
+  }
+}
+$('#contestView').onclick = (e) => {
+  const b = e.target.closest('button[data-c]'); if (!b) return;
+  if (b.dataset.c === 'end' && !confirm('¿Terminar el concurso? Se borran los votos.')) return;
+  emit('contest:' + b.dataset.c);
+};
+
 // ---------- Reacciones flotantes ----------
 function floatEmoji(emoji) {
   const el = document.createElement('div');
@@ -191,6 +297,12 @@ function connect() {
   socket = io({ auth: { pin } });
   socket.on('state', (s) => { state = s; render(); });
   socket.on('reaction', floatEmoji);
+  socket.on('contest', (c) => {
+    const prevPhase = contest?.phase;
+    contest = c;
+    // Re-dibujar solo cuando cambia la fase o los votos (evita confeti repetido)
+    if (!c || prevPhase !== c.phase || c.phase !== 'results') renderContest();
+  });
   socket.on('admin-error', (m) => showBanner('🔒 ' + m));
   socket.on('room-changed', () => loadInfo().then(() => showBanner('🔄 Nuevo código: <b>' + esc($('#salaCode').textContent) + '</b>')).catch(() => {}));
   socket.on('connect_error', (err) => {
@@ -216,6 +328,7 @@ $('#startBtn').onclick = async () => {
   connect();
   started = true;
   $('#controls').classList.remove('hidden');
+  $('#btnContest').classList.remove('hidden');
   $('#start').classList.add('hidden');
   document.documentElement.requestFullscreen?.().catch(() => {});
   sync();

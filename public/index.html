@@ -28,6 +28,9 @@
     <button id="nameBtn" class="btn primary">Entrar</button>
   </section>
 
+  <!-- Concurso de disfraces -->
+  <section id="contestCard" class="contest-card hidden"></section>
+
   <!-- Paso 2: buscar -->
   <section id="searchStep" class="hidden">
     <div class="hello">Hola <b id="helloName"></b> · <a href="#" id="changeName">cambiar</a></div>
@@ -90,6 +93,7 @@ async function joinRoom(code, fromUser) {
   $('#reactions').classList.remove('hidden');
   myName ? show('#searchStep') : show('#nameStep');
   render();
+  renderContest();
   return true;
 }
 function askRoom(msg = '') {
@@ -106,8 +110,15 @@ $('#salaInput').onkeydown = (e) => { if (e.key === 'Enter') joinRoom(e.target.va
 
 function connect() {
   if (socket) socket.disconnect();
-  socket = io({ auth: { sala } });
+  socket = io({ auth: { sala, cliente: clientId } });
   socket.on('state', (s) => { state = s; render(); });
+  socket.on('contest', (c) => {
+    // El servidor borra los votos al abrir desde 'listos' o al iniciar otro concurso
+    if (!c || c.phase === 'ready' || (c.phase === 'voting' && contest?.phase === 'ready')) myVote = null;
+    if (c && c.phase === 'voting' && contest?.phase !== 'voting' && navigator.vibrate) navigator.vibrate([100, 50, 100]);
+    contest = c; renderContest();
+  });
+  socket.on('contest:myVote', (id) => { myVote = id; renderContest(); });
   socket.on('connect_error', (err) => {
     if (err.message === 'sala') askRoom('El código cambió. Míralo en la pantalla 📺');
   });
@@ -215,6 +226,37 @@ document.querySelectorAll('.reactions button').forEach((b) => {
     b.classList.remove('pop'); void b.offsetWidth; b.classList.add('pop');
   };
 });
+
+// ---------- Concurso de disfraces ----------
+let contest = null;
+let myVote = null;
+function renderContest() {
+  const card = $('#contestCard');
+  card.classList.toggle('hidden', !contest || !sala);
+  if (!contest) return;
+  const { phase, candidates, counts, total } = contest;
+  if (phase === 'ready') {
+    card.innerHTML = '<div class="label">🎭 CONCURSO DE DISFRACES</div><b>¡Prepárate! En un momento se abre la votación</b>';
+  } else if (phase === 'voting') {
+    card.innerHTML = `<div class="label">🗳️ VOTA POR TU FAVORITO</div>
+      <small>${myVote ? 'Ya votaste ✓ · puedes cambiar tu voto mientras siga abierta' : 'Toca a tu candidato'}</small>
+      <div class="vote-grid">${candidates.map((c) => `
+        <button class="vote-btn ${myVote === c.id ? 'mine' : ''}" data-id="${c.id}">
+          <span class="c-num">${c.id}</span><span>${esc(c.name)}</span>${myVote === c.id ? '<em>✓</em>' : ''}
+        </button>`).join('')}</div>`;
+  } else {
+    const max = Math.max(0, ...Object.values(counts));
+    const winners = candidates.filter((c) => max > 0 && counts[c.id] === max);
+    card.innerHTML = `<div class="label">🏁 RESULTADOS · ${total} voto${total === 1 ? '' : 's'}</div>
+      <b>${winners.length ? '👑 ' + winners.map((w) => `#${w.id} ${esc(w.name)}`).join(' · ') : 'Nadie votó'}</b>
+      ${myVote ? `<small>Tú votaste por el #${myVote}</small>` : ''}`;
+  }
+}
+$('#contestCard').onclick = (e) => {
+  const b = e.target.closest('.vote-btn'); if (!b || !socket) return;
+  socket.emit('contest:vote', { id: Number(b.dataset.id) });
+  if (navigator.vibrate) navigator.vibrate(40);
+};
 
 // ---------- Arranque ----------
 myName = store.get('karaokeName');

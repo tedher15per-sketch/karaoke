@@ -16,7 +16,7 @@ services:
       - key: PUBLIC_URL
         sync: false        # ej. https://karaoke-party.onrender.com (sin / al final)
       - key: MAX_PER_PERSON
-        value: "2"
+        value: "1"
       - key: SEARCH_SUFFIX
         value: karaoke
       - key: SEARCH_DAILY_LIMIT

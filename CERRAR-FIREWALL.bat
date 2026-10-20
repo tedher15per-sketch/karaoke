@@ -5,5 +5,7 @@ if errorlevel 1 (
   exit /b
 )
 netsh advfirewall firewall delete rule name="Karaoke 3000"
-echo Puerto 3000 cerrado.
+netsh advfirewall firewall delete rule name="Karaoke portal web"
+netsh advfirewall firewall delete rule name="Karaoke portal DNS"
+echo Puertos del karaoke cerrados.
 pause

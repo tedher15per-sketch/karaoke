@@ -7,13 +7,15 @@ import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import QRCode from 'qrcode';
+import { startCaptive } from './captive.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const env = (k, d = '') => String(process.env[k] ?? d).trim();
 
 const PORT = Number(env('PORT', 3000)) || 3000;
 const ADMIN_PIN = env('ADMIN_PIN', '1234');
-const MAX_PER_PERSON = Number(env('MAX_PER_PERSON', 2));
+// Canciones por persona en cola (incluida la que está sonando). 1 = cantas y luego puedes agregar otra.
+const MAX_PER_PERSON = Number(env('MAX_PER_PERSON', 1));
 const SEARCH_SUFFIX = env('SEARCH_SUFFIX', 'karaoke');
 const YT_KEY = env('YOUTUBE_API_KEY');
 // Tope de búsquedas por día para no acabarse la cuota gratis (10,000 unidades = 100 búsquedas)
@@ -32,7 +34,8 @@ const roomOk = (s) => String(s ?? '').trim().toUpperCase() === ROOM;
 // ---------- Estado en memoria ----------
 const state = { current: null, queue: [], history: [] };
 let nextId = 1;
-const publicState = () => ({ current: state.current, queue: state.queue, history: state.history.slice(-10) });
+const strip = (e) => e && { id: e.id, name: e.name, videoId: e.videoId, title: e.title, addedAt: e.addedAt };
+const publicState = () => ({ current: strip(state.current), queue: state.queue.map(strip), history: state.history.slice(-10).map(strip) });
 
 // ---------- Red local ----------
 const VIRTUAL = /vethernet|virtualbox|vmware|wsl|hyper-v|loopback|bluetooth|docker|tailscale|zerotier|vpn/i;
@@ -199,16 +202,20 @@ app.post('/api/queue', requireRoom, (req, res) => {
   const title = clean(req.body.title, 120);
   if (!name || !VIDEO_ID.test(videoId)) return res.status(400).json({ error: 'Falta tu nombre o la canción' });
 
+  // Se cuenta por nombre y por dispositivo, para que cambiarse el nombre no sirva de truco
+  const owner = clean(req.get('x-cliente'), 40) || req.ip;
   const mine = [state.current, ...state.queue]
-    .filter((s) => s && s.name.toLowerCase() === name.toLowerCase()).length;
+    .filter((s) => s && (s.owner === owner || s.name.toLowerCase() === name.toLowerCase())).length;
   if (MAX_PER_PERSON > 0 && mine >= MAX_PER_PERSON) {
-    return res.status(429).json({ error: `Ya tienes ${mine} canciones en cola. Espera tu turno 🎤` });
+    return res.status(429).json({ error: MAX_PER_PERSON === 1
+      ? 'Ya tienes una canción en la cola. Cuando cantes podrás agregar la siguiente 🎤'
+      : `Ya tienes ${mine} canciones en cola. Espera tu turno 🎤` });
   }
-  const entry = { id: nextId++, name, videoId, title, addedAt: Date.now() };
+  const entry = { id: nextId++, name, videoId, title, owner, addedAt: Date.now() };
   state.queue.push(entry);
   if (!state.current) advance(); // si no hay nada sonando, arranca solo
   broadcast();
-  res.json({ ok: true, entry, position: state.queue.findIndex((s) => s.id === entry.id) + 1 });
+  res.json({ ok: true, entry: strip(entry), position: state.queue.findIndex((s) => s.id === entry.id) + 1 });
 });
 
 function advance() {
@@ -216,6 +223,22 @@ function advance() {
   state.current = state.queue.shift() || null;
 }
 function broadcast() { io.emit('state', publicState()); }
+
+// ---------- Concurso de disfraces ----------
+// phase: 'ready' (participantes listos) → 'voting' (se puede votar) → 'results' (ganador)
+let contest = null; // { phase, candidates: [{ id, name }], votes: Map(votante → id) }
+const MAX_CANDIDATES = 50;
+function contestPublic() {
+  if (!contest) return null;
+  const out = { phase: contest.phase, candidates: contest.candidates, total: contest.votes.size };
+  if (contest.phase === 'results') {
+    const counts = Object.fromEntries(contest.candidates.map((c) => [c.id, 0]));
+    for (const id of contest.votes.values()) counts[id]++;
+    out.counts = counts;
+  }
+  return out;
+}
+const broadcastContest = () => io.emit('contest', contestPublic());
 
 // ---------- Tiempo real ----------
 const socketIp = (socket) => (ONLINE
@@ -230,7 +253,10 @@ io.use((socket, next) => {
     if (r === 'ok') { socket.data.dj = true; return next(); }
     return next(new Error(r === 'locked' ? 'locked' : 'pin'));
   }
-  if (roomOk(sala)) return next();
+  if (roomOk(sala)) {
+    socket.data.voter = clean(socket.handshake.auth?.cliente, 40) || socket.id;
+    return next();
+  }
   next(new Error('sala'));
 });
 
@@ -239,6 +265,19 @@ const lastReaction = new Map();
 
 io.on('connection', (socket) => {
   socket.emit('state', publicState());
+  socket.emit('contest', contestPublic());
+  if (contest && socket.data.voter && contest.votes.has(socket.data.voter)) {
+    socket.emit('contest:myVote', contest.votes.get(socket.data.voter));
+  }
+
+  // Votar en el concurso (un voto por cel; se puede cambiar mientras siga abierta)
+  socket.on('contest:vote', ({ id } = {}) => {
+    if (!contest || contest.phase !== 'voting' || !socket.data.voter) return;
+    if (!contest.candidates.some((c) => c.id === id)) return;
+    contest.votes.set(socket.data.voter, id);
+    socket.emit('contest:myVote', id);
+    broadcastContest();
+  });
 
   socket.on('reaction', (emoji) => {
     if (!REACTIONS.includes(emoji)) return;
@@ -267,10 +306,38 @@ io.on('connection', (socket) => {
   }));
   socket.on('admin:clear', dj(() => { state.queue = []; }));
   // Cambiar el código si se filtró (los que ya están dentro siguen conectados)
+  // ---- Concurso (solo DJ) ----
+  const djContest = (fn) => (payload = {}) => {
+    if (!socket.data.dj) return socket.emit('admin-error', 'Solo el DJ puede hacer eso');
+    fn(payload || {});
+    broadcastContest();
+  };
+  socket.on('contest:start', djContest(({ count, names = [] }) => {
+    const n = Math.max(1, Math.min(MAX_CANDIDATES, Math.floor(Number(count)) || 0));
+    contest = {
+      phase: 'ready',
+      candidates: Array.from({ length: n }, (_, i) => ({
+        id: i + 1,
+        name: clean(Array.isArray(names) ? names[i] : '', 30) || `Participante ${i + 1}`,
+      })),
+      votes: new Map(),
+    };
+  }));
+  socket.on('contest:open', djContest(() => {
+    if (!contest) return;
+    if (contest.phase === 'ready') contest.votes.clear();
+    contest.phase = 'voting';
+  }));
+  socket.on('contest:close', djContest(() => { if (contest) contest.phase = 'results'; }));
+  socket.on('contest:end', djContest(() => { contest = null; }));
+
   socket.on('admin:newRoom', dj(() => { ROOM = newRoomCode(); io.emit('room-changed'); }));
 
   socket.on('disconnect', () => lastReaction.delete(socket.id));
 });
+
+// Portal cautivo (solo modo local con el WiFi cerrado del karaoke)
+const CAPTIVE = env('CAPTIVE') === '1' && !ONLINE;
 
 server.listen(PORT, '0.0.0.0', () => {
   const modo = ONLINE ? 'EN INTERNET' : env('PUBLIC_HOST') ? 'RED AISLADA' : 'PRUEBAS (WiFi de casa)';
@@ -289,5 +356,6 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('   ⚠️  Estás en internet: usa un ADMIN_PIN de 6+ dígitos que no sea 1234');
   }
   if (!YT_KEY) console.log('   ⚠️  Sin YOUTUBE_API_KEY: los invitados pueden pegar links de YouTube');
-  console.log('');
+  if (CAPTIVE) startCaptive({ ip: env('PUBLIC_HOST') || lanIP(), appPort: PORT, targetUrl: guestUrl });
+  setTimeout(() => console.log(''), 300);
 });

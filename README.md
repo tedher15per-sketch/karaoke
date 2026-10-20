@@ -44,32 +44,40 @@ Notas del plan gratis:
 - El servidor **se duerme** si nadie lo usa un rato y tarda ~1 minuto en despertar. Abre la pantalla unos minutos antes de la fiesta; mientras esté abierta lo mantiene despierto.
 - Si se reinicia, **se pierde la cola** y cambia el código de sala (para fijarlo, pon `ROOM_CODE`).
 
-## 3. WiFi "Karaoke" que solo abre la app (AP de abajo)
-Para los invitados sin datos: una red abierta donde **lo único que abre es el karaoke**. Al conectarse les salta el aviso "Iniciar sesión en la red" y los manda directo a la app.
+## 3. WiFi "Karaoke" que solo abre la app — versión barata (router de ~$400)
+Cualquier router sencillo que deje **cambiar el DNS del DHCP** (ej. TP-Link TL-WR840N / WR841N / WR820N). No necesitas adaptador Ethernet: la PC también se conecta a este WiFi.
 
 ```
-Totalplay ─cable─▶ MikroTik ◀─WiFi "Karaoke" (abierta)─ celulares
-                    · Hotspot: todo bloqueado excepto tu-app.onrender.com
-                    · Sin acceso a la red de la casa
+Totalplay ─cable─▶ [WAN] Router barato ◀─WiFi "Karaoke" (abierta)─ celulares + PC del DJ
+                         DHCP: DNS = IP de la PC
+                         PC: contesta el DNS → toda página lleva al karaoke
 ```
+Cómo funciona: el router les dice a los celulares "pregúntale los nombres a la PC". La PC contesta que **todo** está en ella, así que abran lo que abran les sale el karaoke, y el cel muestra solo "Iniciar sesión en la red". La PC sí resuelve nombres reales para que YouTube funcione en la pantalla.
 
-**Por qué no basta con el SR1041E o una VLAN:** una VLAN separa redes pero no limita qué páginas se abren. Para "solo esta página" se necesita un *hotspot con walled garden*. Los MikroTik lo traen; el SR1041E de Totalplay no.
+Pasos:
+1. **Puerto WAN** (el azul) del router → puerto LAN del módem Totalplay. Tipo de conexión: *IP dinámica*.
+2. Entra al router (`192.168.0.1` en TP-Link) → **Inalámbrico**: nombre `Karaoke`, **seguridad deshabilitada** (sin contraseña).
+3. Conecta la PC a `Karaoke` y ponla como red **Privada**.
+4. **DHCP → Reserva de direcciones**: agrega la MAC de la PC con una IP fija, ej. `192.168.0.100`. (La MAC sale en la lista de "Clientes DHCP").
+5. **DHCP → Configuración**: *DNS primario* = `192.168.0.100` y *DNS secundario* = `192.168.0.100` (igual, para que no se lo salten). Guarda.
+6. Si el router tiene **IPv6**, apágalo.
+7. En el `.env`: `CAPTIVE=1` y `PUBLIC_HOST=192.168.0.100`. Corre otra vez `ABRIR-FIREWALL.bat` (ahora abre también los puertos 80 y 53).
+8. `INICIAR.bat`. En la consola deben salir dos líneas 🪤 del portal cautivo.
+9. Prueba con tu cel: conéctate a `Karaoke`; debe salir "Iniciar sesión en la red" y abrir la app con el código ya puesto. Abre google.com: también te debe mandar al karaoke.
 
-Equipo sugerido: un MikroTik de la línea **hAP** (doble banda si se puede). Te sirve después para segmentar toda la red de la casa.
+Límites (para una fiesta sobra):
+- Quien sepa mucho puede saltárselo poniendo un DNS manual en su cel.
+- Este router no aísla a los invitados de la red `192.168.100.x` de la casa; no tienen cómo encontrar tus equipos por nombre, pero no es un muro. Para aislamiento real, ver la sección 4.
+- **Prende el servidor antes** de usar la PC en esa red: si está apagado, la PC tampoco resuelve nombres.
 
-Pasos (archivos en `red-karaoke/`):
-1. Conecta el puerto **1** del MikroTik a un puerto LAN del módem Totalplay.
-2. Entra con **WinBox** → *Quick Set*: WiFi `Karaoke` **sin contraseña**, y ponle contraseña al admin del router.
-3. *IP → Hotspot → Hotspot Setup*: interfaz `bridge`, acepta lo que propone; en *DNS Name* pon `karaoke.fiesta`.
-4. Edita `mikrotik-karaoke.rsc` y `login.html`: cambia `karaoke-party.onrender.com` por tu dominio.
-5. *Files* → abre la carpeta `hotspot` → arrastra tu `login.html` (reemplaza el que está).
-6. *New Terminal* → pega el contenido de `mikrotik-karaoke.rsc`.
-7. Prueba con tu cel: conéctate a `Karaoke`, debe abrirse la app sola. Intenta abrir google.com: no debe cargar.
-
-Detalles:
-- En iPhone, si cierran la ventanita, que elijan **"Usar sin internet"** para no desconectarse.
-- Las miniaturas pasan por tu servidor (`/thumb/…`), así que solo hay que permitir **un dominio**.
-- La pantalla del DJ **no** va en esta red: la PC usa tu WiFi o cable normal.
+## 4. Versión pro con MikroTik (más adelante)
+Un MikroTik hAP hace lo mismo con *hotspot + walled garden*, aísla de verdad la red de la casa y funciona con la app en Render. Archivos en `red-karaoke/`:
+1. Puerto **1** del MikroTik → LAN del módem Totalplay.
+2. **WinBox → Quick Set**: WiFi `Karaoke` sin contraseña y contraseña para el admin del router.
+3. *IP → Hotspot → Hotspot Setup*: interfaz `bridge`; *DNS Name* `karaoke.fiesta`.
+4. En `mikrotik-karaoke.rsc` y `login.html` cambia `karaoke-party.onrender.com` por tu dominio.
+5. *Files → hotspot*: reemplaza `login.html` por el tuyo.
+6. *New Terminal*: pega `mikrotik-karaoke.rsc`.
 
 ---
 
@@ -81,10 +89,11 @@ Detalles:
 | `ROOM_CODE` | Código fijo de 4 letras. Vacío = nuevo en cada arranque |
 | `PUBLIC_URL` | URL pública (Render). Activa el modo internet |
 | `PUBLIC_HOST` | IP fija para el QR en modo local |
-| `MAX_PER_PERSON` | Canciones en cola por persona (0 = sin límite) |
+| `MAX_PER_PERSON` | Canciones por persona (incluye la que suena). `1` = una a la vez; al terminar puede agregar otra |
 | `SEARCH_SUFFIX` | Se agrega a cada búsqueda (`karaoke`, `letra`…) |
 | `SEARCH_DAILY_LIMIT` | Tope de búsquedas al día (la cuota gratis da ~100) |
 | `WIFI_SSID` / `WIFI_PASS` | Muestra un QR para unirse al WiFi |
+| `CAPTIVE` | `1` = portal cautivo en modo local (sección 3) |
 
 Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel tiene límite (1 cada 2.5 s, 15 cada 10 min) y pegar un link no gasta cuota.
 
@@ -92,6 +101,13 @@ Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel t
 - **Pantalla:** ⏯️ pausa, ⏭️ saltar, 📋 cola (reordenar, borrar, vaciar, 🔄 nuevo código de sala). Teclado: **→** saltar, **espacio** pausar.
 - **YouTube Premium:** inicia sesión en youtube.com en el navegador de la pantalla y se van los anuncios.
 - **Código filtrado:** 📋 → 🔄 Nuevo código. Los que ya estaban ven la cola, pero para anotarse piden el código nuevo.
+
+## 🎭 Concurso de disfraces
+1. En la pantalla del DJ dale **🎭 Concurso de disfraces**.
+2. Elige cuántos participantes (1 a 50) y, si quieres, escribe su nombre o disfraz. Dale **Iniciar concurso**: el karaoke se pausa y salen los participantes numerados en la tele.
+3. **🗳️ Abrir votación**: a todos los celulares les aparece una tarjeta para votar. Un voto por cel; se puede cambiar mientras siga abierta. En la tele solo se ve cuántos votos van (para mantener el suspenso).
+4. **🏁 Cerrar votación**: se muestra el ganador con 👑, las barras de votos y confeti. Si hay empate, salen todos los empatados.
+5. **✕ Terminar concurso**: se borran los votos y el karaoke sigue donde iba. (**↩️ Reabrir** vuelve a abrir la votación sin borrar votos.)
 
 ## Problemas comunes
 - **El cel no abre la página (local)** → mismo WiFi, red *Privada* y `ABRIR-FIREWALL.bat`. Si el router tiene "aislamiento de clientes", desactívalo.
@@ -104,6 +120,7 @@ Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel t
 | Archivo | Qué hace |
 |---|---|
 | `server.js` | Express + Socket.IO: cola, sala, PIN, búsqueda, QR, miniaturas |
+| `captive.js` | Portal cautivo: DNS falso + redirección en el puerto 80 |
 | `public/index.html` | App del invitado (código, nombre, búsqueda, turno, reacciones) |
 | `public/screen.html` | Pantalla del DJ (reproductor, turnos, QR, emojis) |
 | `render.yaml` | Configuración para Render |
