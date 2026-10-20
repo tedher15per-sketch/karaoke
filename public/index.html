@@ -9,8 +9,32 @@
 <body class="guest">
   <header class="g-header">
     <h1>🎤 Karaoke</h1>
-    <div id="myTurn" class="pill hidden"></div>
+    <div class="head-right">
+      <div id="myTurn" class="pill hidden"></div>
+      <button id="helpBtn" class="help-btn" aria-label="Cómo funciona">❓</button>
+    </div>
   </header>
+
+  <!-- Instrucciones para el invitado -->
+  <div id="help" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="helpTitle">
+    <div class="sheet-box">
+      <div class="sheet-head">
+        <h2 id="helpTitle">¿Cómo funciona?</h2>
+        <button id="helpClose" class="btn small">✕</button>
+      </div>
+      <ol class="help-steps">
+        <li><b>🔎 Busca tu canción</b><span>Escribe la canción o el artista. No hace falta poner “karaoke”. También puedes pegar un link de YouTube.</span></li>
+        <li><b>🎤 Dale “Anotarme”</b><span>Entras al final de la fila. Arriba a la derecha ves tu turno: <i>#3</i>, <i>Sigues tú</i> o <i>¡Te toca!</i></span></li>
+        <li><b>☝️ Una canción a la vez</b><span>Mientras la tuya esté en la fila o sonando, no puedes agregar otra. Cuando termines, tu cel vibra y ya puedes anotarte de nuevo.</span></li>
+        <li><b>🎵 Géneros</b><span>Toca un género arriba del buscador (Salsa, Banda, Norteño…) y solo te saldrán canciones de ese estilo: primero eliges la canción y luego su video de karaoke.</span></li>
+        <li><b>📣 Rondas</b><span>Si el DJ pone una ronda (ej. <i>Ronda de Cumbia</i>), te sale un aviso rosa y durante la ronda solo se vale ese género. No se pueden pegar links.</span></li>
+        <li><b>👏 Reacciones</b><span>Los botones de abajo mandan emojis que salen volando en la pantalla mientras alguien canta.</span></li>
+        <li><b>🎭 Concurso de disfraces</b><span>Cuando el DJ abra la votación te aparece una tarjeta arriba: toca a tu favorito. Es un voto por cel y lo puedes cambiar mientras siga abierta. Los ganadores se revelan en la pantalla.</span></li>
+      </ol>
+      <p class="help-foot">¿Te sacó de la sala? El código de 4 letras está en la pantalla, junto al QR.</p>
+      <button id="helpOk" class="btn primary">¡Va, a cantar! 🎶</button>
+    </div>
+  </div>
 
   <!-- Paso 0: código de sala -->
   <section id="salaStep" class="card hidden">
@@ -136,7 +160,17 @@ function setName(n) {
   $('#helloName').textContent = myName;
   show('#searchStep');
   render();
+  // La primera vez se muestran las instrucciones solas
+  if (!store.get('karaokeHelpSeen')) openHelp();
 }
+
+// ---------- Instrucciones ----------
+function openHelp() { $('#help').classList.remove('hidden'); }
+function closeHelp() { $('#help').classList.add('hidden'); store.set('karaokeHelpSeen', '1'); }
+$('#helpBtn').onclick = openHelp;
+$('#helpClose').onclick = closeHelp;
+$('#helpOk').onclick = closeHelp;
+$('#help').onclick = (e) => { if (e.target.id === 'help') closeHelp(); };
 $('#nameBtn').onclick = () => setName($('#nameInput').value);
 $('#nameInput').onkeydown = (e) => { if (e.key === 'Enter') setName(e.target.value); };
 $('#changeName').onclick = (e) => { e.preventDefault(); show('#nameStep'); $('#nameInput').value = myName; };

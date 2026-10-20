@@ -102,6 +102,9 @@ Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel t
 - **YouTube Premium:** inicia sesión en youtube.com en el navegador de la pantalla y se van los anuncios.
 - **Código filtrado:** 📋 → 🔄 Nuevo código. Los que ya estaban ven la cola, pero para anotarse piden el código nuevo.
 
+## 📱 Instrucciones para los invitados
+En el cel hay un botón **❓** (arriba a la derecha) con una guía corta: buscar y anotarse, una canción a la vez, géneros y rondas, reacciones y cómo votar en el concurso. Se abre sola la primera vez que alguien pone su nombre. El texto está en `public/index.html` (bloque `id="help"`).
+
 ## 🎵 Géneros (validados de verdad)
 Con un género activo la búsqueda es en 2 pasos: **1)** sale la lista de canciones que sí son de ese género, **2)** eliges una y salen sus karaokes.
 
