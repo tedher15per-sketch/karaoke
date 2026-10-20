@@ -191,7 +191,9 @@ let genresList = [];
 fetch('/api/genres').then((r) => r.json()).then((d) => {
   genresList = d.genres;
   $('#roundSel').innerHTML = '<option value="">Todos los géneros</option>' +
-    d.genres.map((g) => `<option value="${g.id}">${g.emoji} ${esc(g.label)}</option>`).join('');
+    [...new Set(d.genres.map((g) => g.group))].map((grp) => `<optgroup label="${esc(grp)}">` +
+      d.genres.filter((g) => g.group === grp).map((g) => `<option value="${g.id}">${g.emoji} ${esc(g.label)}</option>`).join('') +
+      '</optgroup>').join('');
   $('#roundSel').value = d.round || '';
 }).catch(() => {});
 $('#roundSel').onchange = (e) => emit('admin:genre', { id: e.target.value || null });

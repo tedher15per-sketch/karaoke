@@ -241,3 +241,5 @@ input:focus { border-color: var(--pink); }
   display: grid; place-items: center; background: var(--panel-2); font-size: 24px; }
 .results li.back { background: none; padding: 0 4px; }
 .results li.back a { color: var(--cyan); }
+.chip-group { flex-shrink: 0; align-self: center; font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--yellow); font-weight: 800; padding-left: 6px; }

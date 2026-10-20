@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { Server } from 'socket.io';
 import QRCode from 'qrcode';
 import { startCaptive } from './captive.js';
+import { GENRES } from './generos.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const env = (k, d = '') => String(process.env[k] ?? d).trim();
@@ -18,26 +19,25 @@ const ADMIN_PIN = env('ADMIN_PIN', '1234');
 const MAX_PER_PERSON = Number(env('MAX_PER_PERSON', 1));
 const SEARCH_SUFFIX = env('SEARCH_SUFFIX', 'karaoke');
 
-// Géneros. Se validan con el catálogo de Apple Music (iTunes), que dice el género real de cada canción.
-// match = expresión contra el género de iTunes (sin acentos, minúsculas); years = rango de año de lanzamiento.
-// Apple agrupa salsa, cumbia, bachata y merengue como "Salsa y tropical", y banda/norteño/mariachi como "Música mexicana".
-const GENRES = [
-  { id: 'tropical', label: 'Salsa y tropical', emoji: '💃', hint: 'salsa, cumbia, bachata, merengue', match: /salsa|tropical|cumbia|merengue|bachata/ },
-  { id: 'mexicana', label: 'Música mexicana', emoji: '🤠', hint: 'banda, norteño, mariachi, corridos, grupera', match: /mexican|ranchera|norten|banda|grupero|mariachi|corrido/ },
-  { id: 'urbano', label: 'Reggaetón / urbano', emoji: '🔥', hint: 'reggaetón, trap latino', match: /urban|reggae|latin hip|hip.?hop|rap|trap/ },
-  { id: 'pop-es', label: 'Pop en español', emoji: '🎤', match: /pop en espanol|pop latino|latin pop/ },
-  { id: 'rock-es', label: 'Rock en español', emoji: '🤘', match: /rock en espanol|rock latino|latin rock|latin alternative/ },
-  { id: 'baladas', label: 'Baladas y boleros', emoji: '🌙', match: /balada|bolero/ },
-  { id: 'pop-en', label: 'Pop en inglés', emoji: '🇺🇸', match: /^(pop|dance|disco|electronica?|k-pop|pop\/rock|teen pop|adult contemporary)$/ },
-  { id: 'rock-en', label: 'Rock en inglés', emoji: '🎸', match: /^(rock|hard rock|metal|heavy metal|punk|alternativa|alternative|classic rock|rock y alternativo|indie rock|grunge)$/ },
-  { id: 'ochentas', label: 'Ochenteras', emoji: '🕺', hint: 'canciones de 1978 a 1992', years: [1978, 1992] },
-  { id: 'infantil', label: 'Infantiles', emoji: '🧸', match: /infantil|children|ninos|kids/ },
-];
+// Géneros: la lista vive en generos.js (ahí se agregan artistas a los subgéneros)
+const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+for (const g of GENRES) {
+  if (g.artists) {
+    g.artistRe = new RegExp(`(^|[^a-z0-9])(${g.artists.map((a) => escRe(norm(a))).join('|')})([^a-z0-9]|$)`);
+    g.hint ??= 'como ' + g.artists.slice(0, 3).join(', ');
+  }
+}
 const genreById = (id) => GENRES.find((g) => g.id === id) || null;
 let djGenre = null; // ronda del DJ: si está puesta, manda sobre lo que elija cada invitado
-const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 const fitsGenre = (genre, t) => {
   if (genre.years) { const y = Number(String(t.releaseDate || '').slice(0, 4)); return y >= genre.years[0] && y <= genre.years[1]; }
+  if (genre.artists) {
+    // Subgénero: artista de la lista, o nombre con la palabra clave y Apple lo marca dentro de la familia
+    const artist = norm(t.artistName);
+    if (genre.artistRe.test(artist)) return true;
+    return !!genre.keyword && genre.keyword.test(artist) && genre.family.test(norm(t.primaryGenreName));
+  }
   return genre.match.test(norm(t.primaryGenreName));
 };
 const YT_KEY = env('YOUTUBE_API_KEY');
@@ -170,7 +170,7 @@ app.get('/thumb/:id', async (req, res) => {
 
 // Búsqueda en YouTube (solo videos embebibles)
 app.get('/api/genres', (_req, res) => res.json({
-  genres: GENRES.map(({ id, label, emoji, hint }) => ({ id, label, emoji, hint })),
+  genres: GENRES.map(({ id, label, emoji, hint, group }) => ({ id, label, emoji, hint, group })),
   round: djGenre?.id || null,
 }));
 

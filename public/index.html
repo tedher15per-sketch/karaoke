@@ -277,8 +277,12 @@ function renderGenres() {
   $('#genreHint').classList.toggle('hidden', !mine);
   if (mine) $('#genreHint').textContent = `Solo saldrán canciones de ${mine.label}${mine.hint ? ' (' + mine.hint + ')' : ''}`;
   $('#genreChips').classList.toggle('hidden', !!g || !genres.length);
-  $('#genreChips').innerHTML = [{ id: '', label: 'Todos', emoji: '🎶' }, ...genres].map((x) =>
-    `<button type="button" class="chip ${(myGenre || '') === x.id ? 'on' : ''}" data-g="${x.id}">${x.emoji} ${esc(x.label)}</button>`).join('');
+  let lastGroup = null;
+  $('#genreChips').innerHTML = [{ id: '', label: 'Todos', emoji: '🎶' }, ...genres].map((x) => {
+    const sep = x.group && x.group !== lastGroup ? `<span class="chip-group">${esc(x.group)}</span>` : '';
+    lastGroup = x.group || lastGroup;
+    return sep + `<button type="button" class="chip ${(myGenre || '') === x.id ? 'on' : ''}" data-g="${x.id}">${x.emoji} ${esc(x.label)}</button>`;
+  }).join('');
   const label = g ? g.label : genres.find((x) => x.id === myGenre)?.label;
   $('#q').placeholder = label ? `Buscar en ${label}…` : 'Canción, artista o link de YouTube…';
 }

@@ -103,14 +103,21 @@ Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel t
 - **Código filtrado:** 📋 → 🔄 Nuevo código. Los que ya estaban ven la cola, pero para anotarse piden el código nuevo.
 
 ## 🎵 Géneros (validados de verdad)
-El género de cada canción se revisa en el catálogo de Apple Music (iTunes, gratis, sin clave). Con un género activo, la búsqueda es en 2 pasos: **1)** sale la lista de canciones que sí son de ese género, **2)** eliges una y salen sus karaokes.
+Con un género activo la búsqueda es en 2 pasos: **1)** sale la lista de canciones que sí son de ese género, **2)** eliges una y salen sus karaokes.
 
 - **En el cel:** la fila de géneros arriba del buscador es un filtro voluntario.
-- **Ronda del DJ** (selector **🎵 Ronda** en la pantalla): obligatoria para todos. Solo se pueden anotar videos que salieron de una canción validada, y **no se aceptan links pegados**. *Todos los géneros* termina la ronda.
-- Géneros: Salsa y tropical (salsa, cumbia, bachata, merengue), Música mexicana (banda, norteño, mariachi, corridos, grupera), Reggaetón / urbano, Pop en español, Rock en español, Baladas y boleros, Pop en inglés, Rock en inglés, Ochenteras (lanzadas de 1978 a 1992) e Infantiles.
-- Apple no separa salsa de cumbia ni banda de norteño; por eso van agrupados.
-- Si iTunes no responde: en ronda pide intentar de nuevo; con el filtro voluntario busca normal.
-- La lista está en `GENRES` dentro de `server.js`.
+- **Ronda del DJ** (selector **🎵 Ronda** en la pantalla): obligatoria para todos. Solo se pueden anotar videos que salieron de una canción validada y **no se aceptan links pegados**. *Todos los géneros* termina la ronda.
+
+Cómo se valida:
+| Tipo | Ejemplos | Se valida con |
+|---|---|---|
+| **Subgénero** | Salsa, Cumbia, Bachata, Merengue · Banda, Norteño, Mariachi, Corridos, Grupera | **Lista de artistas** de ese estilo en `generos.js` (o el artista lleva la palabra, ej. "Banda MS", y Apple lo marca como mexicana/tropical) |
+| **Familia** | Toda la tropical, Toda la mexicana, Reggaetón, Pop/Rock en español, Baladas, Pop/Rock en inglés, Infantiles | Género que da Apple Music (iTunes) |
+| **Época** | Ochenteras | Año de lanzamiento (1978–1992) |
+
+**¿Falta un artista?** Abre `generos.js`, agrégalo a la lista del subgénero (sin preocuparte por acentos ni mayúsculas) y haz `git push`. Si un artista hace dos estilos (ej. Juan Luis Guerra), puede estar en las dos listas.
+
+Si iTunes no responde: en ronda pide intentar de nuevo; con el filtro voluntario busca normal.
 
 ## 🎭 Concurso de disfraces
 1. **🎭 Concurso de disfraces** → número de participantes (1–50) y nombres opcionales → **Iniciar concurso** (el karaoke se pausa).
@@ -131,6 +138,7 @@ El género de cada canción se revisa en el catálogo de Apple Music (iTunes, gr
 |---|---|
 | `server.js` | Express + Socket.IO: cola, sala, PIN, búsqueda, QR, miniaturas |
 | `captive.js` | Portal cautivo: DNS falso + redirección en el puerto 80 |
+| `generos.js` | Lista de géneros y artistas de cada subgénero |
 | `public/index.html` | App del invitado (código, nombre, búsqueda, turno, reacciones) |
 | `public/screen.html` | Pantalla del DJ (reproductor, turnos, QR, emojis) |
 | `render.yaml` | Configuración para Render |
