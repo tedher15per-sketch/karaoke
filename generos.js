@@ -143,7 +143,7 @@ export const GENRES = [
       'Kevvo', 'Chencho Corleone', 'Alexis & Fido', 'Alexis y Fido', 'RKM & Ken-Y', 'Ken-Y', 'Hector el Father',
       'Baby Rasta & Gringo', 'Tito El Bambino', 'Jory Boy', 'Brray', 'Dei V', 'Rels B', 'Bizarrap', 'Duki',
       'Nicki Nicole', 'Tiago PZK', 'Maria Becerra', 'Emilia', 'Trueno', 'Paulo Londra', 'Rochy RD', 'El Alfa',
-      'Tokischa', 'Chimbala', 'Kali Uchis', 'Sean Paul', 'Pitbull', 'Gente de Zona', 'Cazzu', 'Anitta', 'Kim Loaiza',
+      'Tokischa', 'Chimbala', 'Sean Paul', 'Pitbull', 'Gente de Zona', 'Cazzu', 'Anitta', 'Kim Loaiza',
       'Dani Flow', 'Bellakath', 'Uzielito Mix', 'El Malilla', 'Yeri Mua', 'Alemán', 'Santa Fe Klan', 'C-Kan',
       'Cartel de Santa', 'Gera MX', 'Sabino', 'Lefty SM', 'Bhavi', 'Khea', 'Nio Garcia', 'Casper Magico', 'Darell',
       'Brytiago', 'Bryant Myers', 'Jay Wheeler', 'Miky Woodz', 'Totoy El Frio', 'Saiko', 'Omar Courtz', 'Dímelo Flow',
@@ -255,7 +255,7 @@ export const GENRES = [
   { id: 'ochentas', group: 'Otros', label: 'Ochenteras', emoji: '🕺', hint: 'canciones lanzadas de 1978 a 1992', years: [1978, 1992] },
   {
     id: 'infantil', group: 'Otros', label: 'Infantiles', emoji: '🧸', hint: 'canciones para niños', exclusive: true,
-    match: /infantil|children|ninos|kids/,
+    match: /infantil|children|ninos|kids|para ninos/,
     artists: [
       'Cri-Cri', 'Cri Cri', 'Francisco Gabilondo Soler', 'Topa', 'Diego Topa', 'CantaJuego', 'Pinkfong', 'Cocomelon',
       'El Payaso Plim Plim', 'Plim Plim', 'Xuxa', 'Miliki', 'Gaby Fofo y Miliki', 'Payasos de la Tele', 'Tatiana',

@@ -52,10 +52,11 @@ const fitsGenre = (genre, t) => {
   const apple = norm(t.primaryGenreName); // vacío si la canción vino de Deezer (respaldo)
   // 1) Artista de la lista de este género
   if (knownArtist(genre, artist)) return true;
-  // 2) Artista conocido de OTRO género del mismo grupo (ej. Karol G en "Pop en español") → no
-  if (genre.exclusive && GENRES.some((o) => o !== genre && o.exclusive && knownArtist(o, artist))) return false;
+  // 2) Artista conocido de CUALQUIER otro género (ej. Karol G en "Pop en español", Rosalía en "Pop en inglés") → no
+  if (genre.exclusive && GENRES.some((o) => o !== genre && knownArtist(o, artist))) return false;
   if (!apple) return false;
-  // 3) Artista desconocido: subgénero → palabra clave en el nombre + familia de Apple; familia → género de Apple
+  // 3) Artista desconocido (Apple: reggaetón = "Urbano latino", rock en español = "Alternativa y rock en español",
+  //    niños = "Música para niños"; ojo: Apple pone "Pop" a mucho pop latino y "Pop en español" a baladas clásicas): subgénero → palabra clave en el nombre + familia de Apple; familia → género de Apple
   if (genre.family) return !!genre.keyword && genre.keyword.test(artist) && genre.family.test(apple);
   return !!genre.match && genre.match.test(apple);
 };
