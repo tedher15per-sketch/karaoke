@@ -118,7 +118,7 @@ Con un género activo la búsqueda es en 2 pasos: **1)** sale la lista de cancio
 Cómo se decide si una canción es de un género (en este orden):
 1. **El artista está en la lista de ese género** (`generos.js`) → sí.
 2. **El artista está en la lista de OTRO género del mismo grupo** → no. Así Karol G o Bad Bunny nunca salen en *Pop en español* aunque Apple marque la canción como pop, y Sebastián Yatra no sale en *Reggaetón* aunque la canción sea urbana.
-3. **Artista que no está en ninguna lista** → se usa el género que da Apple Music (ej. "Urbano latino" → reggaetón). En subgéneros (banda, salsa…) solo entra si su nombre lleva la palabra (ej. "Banda …") y Apple lo marca como mexicana/tropical.
+3. **Artista que no está en ninguna lista** → se usa el género que da Apple Music (ej. "Urbano latino" → reggaetón), **excepto en Pop en español, Baladas y Pop en inglés**: ahí solo cuentan las listas, porque Apple pone "Pop en español" a reggaetón y a baladas clásicas (pasó con *Gata Only*). En subgéneros (banda, salsa…) solo entra si su nombre lleva la palabra (ej. "Banda …") y Apple lo marca como mexicana/tropical.
 
 Detalles:
 - Nombres de una palabra (Kiss, Queen, Mora, Camila…) cuentan solo exactos: *Mora* no atrapa a *Lalo Mora* ni *Queen* a *Queen Latifah*. Las colaboraciones (A & B, A feat. B) se revisan por cada artista.

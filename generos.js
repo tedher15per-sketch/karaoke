@@ -128,9 +128,10 @@ export const GENRES = [
   { id: 'mexicana', group: 'Música mexicana', label: 'Toda la mexicana', emoji: '🇲🇽', hint: 'banda, norteño, mariachi, corridos, grupera', match: MEXICANA },
 
   // ---------- Otros ----------
-  // Estos géneros también se validan por artista. Si un artista está en la lista de OTRO género de este grupo,
+  // Estos géneros también se validan por artista. Si un artista está en la lista de OTRO género,
   // no entra aquí (así no se mezcla reggaetón con pop). Para artistas que no están en ninguna lista se usa
-  // el género que da Apple Music.
+  // el género de Apple, EXCEPTO en los marcados strict: true (Pop en español, Baladas, Pop en inglés), porque
+  // Apple pone "Pop"/"Pop en español" a reggaetón, baladas clásicas y pop latino por igual.
   {
     id: 'urbano', group: 'Otros', label: 'Reggaetón / urbano', emoji: '🔥', hint: 'reggaetón, trap latino, dembow', exclusive: true,
     match: /urban|reggaet|latin hip|hip.?hop|rap|trap|dembow/,
@@ -149,10 +150,14 @@ export const GENRES = [
       'Brytiago', 'Bryant Myers', 'Jay Wheeler', 'Miky Woodz', 'Totoy El Frio', 'Saiko', 'Omar Courtz', 'Dímelo Flow',
       'Sky Rompiendo', 'Tainy', 'Lyanno', 'Cauty', 'Zion', 'Lennox', 'J Alvarez', 'Gotay', 'Arcangel & De La Ghetto',
       'Chino & Nacho', 'Chino y Nacho',
+      'FloyyMenor', 'Cris MJ', 'Jere Klein', 'Standly', 'Pailita', 'Marcianeke', 'Bayriton', 'Hades66', 'Kidd Voodoo',
+      'Yan Block', 'Kris R', 'Beele', 'Maisak', 'Kapo', 'Kevin Roldan', 'Reykon', 'Big One', 'Ovy on the Drums',
+      'Alvaro Diaz', 'Dalex', 'Juhn', 'Brray', 'Hydro', 'Jay Wheeler', 'Ken-Y', 'Nio Garcia',
+      'Clarent', 'Akapellah', 'Lil Cake', 'Nanpa Basico', 'Junior Caldera', 'Rafa Pabon', 'Ñejo', 'Polaco', 'Kendo Kaponi',
     ],
   },
   {
-    id: 'pop-es', group: 'Otros', label: 'Pop en español', emoji: '🎤', hint: 'pop latino, de antes y de ahora', exclusive: true,
+    id: 'pop-es', group: 'Otros', strict: true, label: 'Pop en español', emoji: '🎤', hint: 'pop latino, de antes y de ahora', exclusive: true,
     match: /pop en espanol|pop latino|latin pop/,
     artists: [
       'Shakira', 'Sebastian Yatra', 'Camilo', 'Reik', 'CNCO', 'Danna Paola', 'Danna', 'Aitana', 'TINI', 'Morat',
@@ -190,7 +195,7 @@ export const GENRES = [
     ],
   },
   {
-    id: 'baladas', group: 'Otros', label: 'Baladas y boleros', emoji: '🌙', hint: 'baladas románticas y boleros', exclusive: true,
+    id: 'baladas', group: 'Otros', strict: true, label: 'Baladas y boleros', emoji: '🌙', hint: 'baladas románticas y boleros', exclusive: true,
     match: /balada|bolero/,
     artists: [
       'Jose Jose', 'Camilo Sesto', 'Raphael', 'Juan Gabriel', 'Rocio Durcal', 'Emmanuel', 'Mijares',
@@ -210,7 +215,7 @@ export const GENRES = [
     ],
   },
   {
-    id: 'pop-en', group: 'Otros', label: 'Pop en inglés', emoji: '🇺🇸', hint: 'pop en inglés de antes y de ahora', exclusive: true,
+    id: 'pop-en', group: 'Otros', strict: true, label: 'Pop en inglés', emoji: '🇺🇸', hint: 'pop en inglés de antes y de ahora', exclusive: true,
     match: /^(pop|dance|disco|electronica?|k-pop|pop\/rock|teen pop|adult contemporary|r&b\/soul|soul|r&b)$/,
     artists: [
       'Taylor Swift', 'Ed Sheeran', 'Dua Lipa', 'The Weeknd', 'Bruno Mars', 'Adele', 'Ariana Grande', 'Billie Eilish',
