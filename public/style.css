@@ -269,3 +269,10 @@ input:focus { border-color: var(--pink); }
 .qr-big-box img { width: min(70vh, 80vw); height: auto; }
 .qr-big-label { color: #000; font-size: clamp(22px, 3vw, 40px); font-weight: 900; }
 .qr-big-sub { color: #333; font-size: clamp(16px, 2vw, 26px); font-weight: 700; }
+
+/* ---- Reportes ---- */
+.q-row, .np-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.q-row > div { display: grid; min-width: 0; }
+.flag { flex-shrink: 0; border: 0; background: rgba(255,90,95,.12); color: var(--text); border-radius: 8px;
+  padding: 4px 8px; font-size: 14px; cursor: pointer; }
+.flag.done { background: none; opacity: .6; cursor: default; }

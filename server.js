@@ -9,6 +9,7 @@ import { Server } from 'socket.io';
 import QRCode from 'qrcode';
 import { startCaptive } from './captive.js';
 import { GENRES } from './generos.js';
+import { fetchArtistProfile, profileFits } from './lastfm.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const env = (k, d = '') => String(process.env[k] ?? d).trim();
@@ -54,13 +55,20 @@ const fitsGenre = (genre, t) => {
   if (knownArtist(genre, artist)) return true;
   // 2) Artista conocido de CUALQUIER otro género (ej. Karol G en "Pop en español", Rosalía en "Pop en inglés") → no
   if (genre.exclusive && GENRES.some((o) => o !== genre && knownArtist(o, artist))) return false;
+  // 3) Artista desconocido con datos de Last.fm: manda el género dominante de sus etiquetas
+  if (t.lastfm) {
+    const fit = profileFits(genre.id, t.lastfm);
+    if (fit !== null) return fit;
+  }
   if (!apple || genre.strict) return false; // strict: solo cuentan las listas (Apple no es confiable ahí)
-  // 3) Artista desconocido (Apple: reggaetón = "Urbano latino", rock en español = "Alternativa y rock en español",
+  // 4) Sin Last.fm (Apple: reggaetón = "Urbano latino", rock en español = "Alternativa y rock en español",
   //    niños = "Música para niños"; ojo: Apple pone "Pop" a mucho pop latino y "Pop en español" a baladas clásicas): subgénero → palabra clave en el nombre + familia de Apple; familia → género de Apple
   if (genre.family) return !!genre.keyword && genre.keyword.test(artist) && genre.family.test(apple);
   return !!genre.match && genre.match.test(apple);
 };
 const YT_KEY = env('YOUTUBE_API_KEY');
+const LASTFM_KEY = env('LASTFM_API_KEY'); // gratis: https://www.last.fm/api/account/create
+const REPORTS_TO_REMOVE = Math.max(1, Number(env('REPORTS_TO_REMOVE', 2)) || 2);
 // Tope de búsquedas por día para no acabarse la cuota gratis (10,000 unidades = 100 búsquedas)
 const SEARCH_DAILY_LIMIT = Number(env('SEARCH_DAILY_LIMIT', 95));
 // En internet (Render) pon PUBLIC_URL=https://tu-app.onrender.com
@@ -275,6 +283,43 @@ async function youtubeSearch(req, query) {
   }
 }
 
+// ---------- Last.fm (artistas que no están en las listas) ----------
+const lastfmCache = new Map(); // artista → { at, profile|null }
+async function artistProfile(name) {
+  const key = norm(name);
+  const hit = lastfmCache.get(key);
+  if (hit && Date.now() - hit.at < 7 * 24 * 3600e3) return hit.profile;
+  try {
+    const profile = await fetchArtistProfile(name, LASTFM_KEY);
+    lastfmCache.set(key, { at: Date.now(), profile });
+    if (lastfmCache.size > 5000) lastfmCache.delete(lastfmCache.keys().next().value);
+    return profile;
+  } catch (e) {
+    if (/lastfm 6$/.test(e.message)) lastfmCache.set(key, { at: Date.now(), profile: null }); // no existe
+    return null; // límite, tardó o falló: se sigue sin Last.fm
+  }
+}
+const isKnownAnywhere = (artist) => GENRES.some((g) => knownArtist(g, norm(artist)));
+const mainArtist = (name) => String(name || '').split(/\s*(?:,|&|\bx\b|\by\b|\bfeat\.?|\bft\.?)\s*/i)[0].trim();
+
+// ---------- Anti-rarezas ----------
+// Versiones que no sirven para karaoke ni para la lista de canciones
+// Se revisa solo lo "decorativo" del título: lo que va entre paréntesis/corchetes o después de " - "
+// (así "Live and Let Die" no cae por "live", pero "Hips Don't Lie (Live)" sí)
+const WEIRD_DECOR = /\b(remix|rmx|en vivo|live|sped ?up|slowed|reverb|8d|medley|mashup|megamix|mix|cover|tributo|tribute|karaoke|instrumental|acustic[oa]|acoustic|demo|version (acustica|banda|cumbia|salsa|rock|piano))\b/;
+const WEIRD_ANYWHERE = /\b(remix|karaoke|sped ?up|slowed (\+|and) reverb|8d audio)\b/;
+const decor = (title) => [...title.matchAll(/[([](.*?)[)\]]/g)].map((m) => m[1]).join(' ') + ' ' + (title.split(/\s[-–]\s/).slice(1).join(' '));
+const weirdTrack = (name) => { const t = norm(name); return WEIRD_ANYWHERE.test(t) || WEIRD_DECOR.test(decor(t)); };
+const WEIRD_ARTIST = /\b(karaoke|tribute|tributo|cover|covers|string quartet|lullaby|lullabies|cuna|instrumental|workout|music box|cajita musical|8d|sped up|slowed|tabata|hits band|party band|orchestra plays)\b/;
+// El video de karaoke debe ser de ESA canción: la mayoría de las palabras del título deben aparecer
+function sameSong(videoTitle, track) {
+  const words = norm(track.replace(/\s*[([].*?[)\]]/g, '')).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 || /^\d+$/.test(w));
+  if (!words.length) return true;
+  const title = norm(videoTitle);
+  const hits = words.filter((w) => title.includes(w)).length;
+  return hits / words.length >= 0.6;
+}
+
 app.get('/api/search', requireRoom, async (req, res) => {
   const raw = String(req.query.q ?? '').trim();
   const q = clean(raw, 100);
@@ -310,10 +355,17 @@ app.get('/api/search', requireRoom, async (req, res) => {
       tracks = null; // filtro voluntario: si iTunes falla, se busca normal
     }
     if (tracks) {
+      tracks = tracks.filter((t) => t.trackName && !weirdTrack(t.trackName) && !WEIRD_ARTIST.test(norm(t.artistName)));
+      // Artistas que no están en ninguna lista → se consultan en Last.fm (en paralelo, máx. 8, con tiempo límite)
+      if (LASTFM_KEY && !genre.years) {
+        const unknown = [...new Set(tracks.map((t) => mainArtist(t.artistName)).filter((a) => a && !isKnownAnywhere(a)))].slice(0, 8);
+        const profiles = new Map(await Promise.all(unknown.map(async (a) => [a, await artistProfile(a)])));
+        for (const t of tracks) { const p = profiles.get(mainArtist(t.artistName)); if (p) t.lastfm = p; }
+      }
       const seen = new Set();
       const list = [];
       for (const t of tracks) {
-        if (!t.trackName || !fitsGenre(genre, t)) continue;
+        if (!fitsGenre(genre, t)) continue;
         const k = norm(t.trackName.replace(/\s*[([].*?[)\]]/g, '')) + '|' + norm(t.artistName);
         if (seen.has(k)) continue;
         seen.add(k);
@@ -343,10 +395,12 @@ app.get('/api/search/track', requireRoom, async (req, res) => {
   const t = trackTokens.get(String(req.query.id || ''));
   if (!t) return res.status(404).json({ error: 'Vuelve a buscar la canción 🔎' });
   if (!YT_KEY) return res.status(500).json({ error: 'Falta la API key de YouTube' });
-  const r = await youtubeSearch(req, `${t.track} ${t.artist} ${SEARCH_SUFFIX}`);
+  const r = await youtubeSearch(req, `${t.track} ${mainArtist(t.artist)} ${SEARCH_SUFFIX}`);
   if (r.error) return res.status(r.status).json({ error: r.error });
-  for (const it of r.items) remember(approvedVideos, it.videoId, { genreId: t.genreId });
-  res.json(r.items);
+  const items = r.items.filter((it) => sameSong(it.title, t.track)); // solo karaokes de ESA canción
+  for (const it of items) remember(approvedVideos, it.videoId, { genreId: t.genreId });
+  if (!items.length) return res.status(404).json({ error: `No encontré karaoke de "${t.track}" 😕 Elige otra canción.` });
+  res.json(items);
 });
 
 // Anotarse
@@ -433,6 +487,7 @@ io.use((socket, next) => {
   next(new Error('sala'));
 });
 
+const reports = new Map(); // id de canción → Set(cels que la reportaron)
 const REACTIONS = ['👏', '🔥', '❤️', '😂', '🎉', '🤘', '😍', '🙌'];
 const lastReaction = new Map();
 
@@ -459,6 +514,24 @@ io.on('connection', (socket) => {
     if (now - (lastReaction.get(socket.id) || 0) < 250) return;
     lastReaction.set(socket.id, now);
     io.emit('reaction', emoji);
+  });
+
+  // 🚩 Reporte: "no es del género / no es karaoke". Con REPORTS_TO_REMOVE cels distintos se quita sola.
+  socket.on('report', ({ id } = {}) => {
+    const voter = socket.data.voter;
+    if (!voter) return;
+    const entry = state.current?.id === id ? state.current : state.queue.find((s) => s.id === id);
+    if (!entry || entry.owner === voter) return; // no se reporta la propia
+    const set = reports.get(id) || new Set();
+    set.add(voter);
+    reports.set(id, set);
+    socket.emit('report:ok', id);
+    if (set.size < REPORTS_TO_REMOVE) return;
+    reports.delete(id);
+    if (state.current?.id === id) advance();
+    else state.queue = state.queue.filter((s) => s.id !== id);
+    io.emit('removed', { title: entry.title, name: entry.name });
+    broadcast();
   });
 
   // ---- Solo la pantalla del DJ ----

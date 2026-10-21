@@ -120,12 +120,24 @@ Cómo se decide si una canción es de un género (en este orden):
 2. **El artista está en la lista de OTRO género del mismo grupo** → no. Así Karol G o Bad Bunny nunca salen en *Pop en español* aunque Apple marque la canción como pop, y Sebastián Yatra no sale en *Reggaetón* aunque la canción sea urbana.
 3. **Artista que no está en ninguna lista** → se usa el género que da Apple Music (ej. "Urbano latino" → reggaetón), **excepto en Pop en español, Baladas y Pop en inglés**: ahí solo cuentan las listas, porque Apple pone "Pop en español" a reggaetón y a baladas clásicas (pasó con *Gata Only*). En subgéneros (banda, salsa…) solo entra si su nombre lleva la palabra (ej. "Banda …") y Apple lo marca como mexicana/tropical.
 
+**Capa Last.fm (gratis, recomendada):** para artistas que no están en ninguna lista, el servidor consulta sus etiquetas en Last.fm (ej. FloyyMenor → *reggaeton, reggaeton chileno*; Junior H → *corridos tumbados, sierreño*). Se suman los pesos de todas las etiquetas de cada género y gana el dominante; "pop" cuenta como genérico (si el artista tiene un género más específico con peso, no entra a pop). Si Last.fm tarda más de 2.5 s o falla, se sigue sin él. Resultados guardados 7 días.
+
+Para activarla:
+1. Crea una cuenta en last.fm y entra a https://www.last.fm/api/account/create
+2. Llena *Application name* (`Karaoke`) y *Description*; lo demás vacío. Copia el **API key**.
+3. En Render → Environment: `LASTFM_API_KEY=tu_clave`.
+
 Detalles:
 - Nombres de una palabra (Kiss, Queen, Mora, Camila…) cuentan solo exactos: *Mora* no atrapa a *Lalo Mora* ni *Queen* a *Queen Latifah*. Las colaboraciones (A & B, A feat. B) se revisan por cada artista.
 - Lo que vimos en Apple: todo el reggaetón sale como "Urbano latino", pero Shakira sale como "Pop" (inglés). Por eso mandan las listas.
 - Catálogo: Apple Music (trae género y año). Apple limita a ~20 consultas por minuto; si se satura se usa **Deezer** de respaldo (sin género: solo cuentan las listas de artistas; *Ochenteras* necesita a Apple por el año).
 - Géneros: Salsa · Cumbia · Bachata · Merengue · Toda la tropical · Banda · Norteño · Mariachi · Corridos · Grupera · Toda la mexicana · Reggaetón · Pop en español · Rock en español · Baladas y boleros · Pop en inglés · Rock en inglés · Ochenteras · Infantiles.
 - **¿Falta un artista?** Agrégalo en su lista de `generos.js` (acentos y mayúsculas no importan) y haz `git push`. Si de verdad hace dos estilos, ponlo en las dos.
+
+## 🚫 Anti-rarezas
+- En la lista de canciones se ocultan remixes, en vivo, *sped up/slowed*, mixes, covers, tributos y versiones karaoke de catálogo.
+- Al elegir una canción, solo salen karaokes **de esa canción** (el título del video debe traer la mayoría de sus palabras).
+- **🚩 Reportar:** los invitados pueden reportar una canción de la fila (no es del género o no es karaoke). Con `REPORTS_TO_REMOVE` (2) reportes de cels distintos se quita sola y la pantalla avisa. Nadie puede reportar la suya.
 
 ## 🎭 Concurso de disfraces
 1. **🎭 Concurso de disfraces** → número de participantes (1–50) y nombres opcionales → **Iniciar concurso** (el karaoke se pausa).
@@ -147,6 +159,7 @@ Detalles:
 | `server.js` | Express + Socket.IO: cola, sala, PIN, búsqueda, QR, miniaturas |
 | `captive.js` | Portal cautivo: DNS falso + redirección en el puerto 80 |
 | `generos.js` | Lista de géneros y artistas de cada subgénero |
+| `lastfm.js` | Clasificación por etiquetas de Last.fm |
 | `public/index.html` | App del invitado (código, nombre, búsqueda, turno, reacciones) |
 | `public/screen.html` | Pantalla del DJ (reproductor, turnos, QR, emojis) |
 | `render.yaml` | Configuración para Render |

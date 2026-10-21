@@ -364,6 +364,7 @@ function connect() {
     if (changed && started) showBanner(g ? `${g.emoji} ¡Ronda de <b>${esc(g.label)}</b>!` : '🎶 Se acabó la ronda: todos los géneros');
   });
   socket.on('reaction', floatEmoji);
+  socket.on('removed', ({ title, name }) => showBanner(`🚩 Se quitó <b>${esc(title)}</b> (${esc(name)}) por reportes`));
   socket.on('contest', (c) => {
     const prev = contest;
     contest = c;

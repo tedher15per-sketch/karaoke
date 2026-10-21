@@ -28,6 +28,7 @@
         <li><b>☝️ Una canción a la vez</b><span>Mientras la tuya esté en la fila o sonando, no puedes agregar otra. Cuando termines, tu cel vibra y ya puedes anotarte de nuevo.</span></li>
         <li><b>🎵 Géneros</b><span>Toca un género arriba del buscador (Salsa, Banda, Norteño…) y solo te saldrán canciones de ese estilo: primero eliges la canción y luego su video de karaoke.</span></li>
         <li><b>📣 Rondas</b><span>Si el DJ pone una ronda (ej. <i>Ronda de Cumbia</i>), te sale un aviso rosa y durante la ronda solo se vale ese género. No se pueden pegar links.</span></li>
+        <li><b>🚩 Reportar</b><span>Si en la fila hay una canción que no es del género de la ronda o no es karaoke, toca 🚩. Con 2 reportes de distintos cels se quita sola.</span></li>
         <li><b>👏 Reacciones</b><span>Los botones de abajo mandan emojis que salen volando en la pantalla mientras alguien canta.</span></li>
         <li><b>🎭 Concurso de disfraces</b><span>Cuando el DJ abra la votación te aparece una tarjeta arriba: toca a tu favorito. Es un voto por cel y lo puedes cambiar mientras siga abierta. Los ganadores se revelan en la pantalla.</span></li>
       </ol>
@@ -140,6 +141,8 @@ function connect() {
   socket = io({ auth: { sala, cliente: clientId } });
   socket.on('state', (s) => { state = s; render(); });
   socket.on('genre', (id) => { round = id; renderGenres(); });
+  socket.on('report:ok', (id) => { reported.add(id); render(); flash('Gracias, quedó reportada 🚩', 'ok'); });
+  socket.on('removed', ({ title }) => flash(`🚩 Se quitó "${title}" por reportes`, 'ok'));
   socket.on('contest', (c) => {
     // El servidor borra los votos al abrir desde 'listos' o al iniciar otro concurso
     if (!c || c.phase === 'ready' || (c.phase === 'voting' && contest?.phase === 'ready')) myVote = null;
@@ -249,14 +252,23 @@ async function signUp(v, btn) {
 }
 
 // ---------- Cola ----------
+const reported = new Set();
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-report]'); if (!b || !socket) return;
+  if (!confirm('¿Reportar esta canción? (no es del género de la ronda o no es karaoke)\nSi otra persona también la reporta, se quita sola.')) return;
+  socket.emit('report', { id: Number(b.dataset.report) });
+});
 let hadSong = false; // para avisar cuando ya cantaste
 function render() {
   const { current, queue } = state;
+  const flag = (s) => s.name === myName ? '' : reported.has(s.id)
+    ? '<span class="flag done" title="Ya lo reportaste">🚩✓</span>'
+    : `<button class="flag" data-report="${s.id}" title="Reportar: no es del género o no es karaoke">🚩</button>`;
   $('#nowPlaying').innerHTML = current
-    ? `<b>${esc(current.name)}</b> — ${esc(current.title)}`
+    ? `<div class="np-row"><div><b>${esc(current.name)}</b> — ${esc(current.title)}</div>${flag(current)}</div>`
     : 'Nadie aún — ¡sé el primero!';
   $('#queue').innerHTML = queue.length
-    ? queue.map((s) => `<li class="${s.name === myName ? 'me' : ''}"><b>${esc(s.name)}</b><span>${esc(s.title)}</span></li>`).join('')
+    ? queue.map((s) => `<li class="${s.name === myName ? 'me' : ''}"><div class="q-row"><div><b>${esc(s.name)}</b><span>${esc(s.title)}</span></div>${flag(s)}</div></li>`).join('')
     : '<li class="muted">La cola está vacía</li>';
 
   const pill = $('#myTurn');
