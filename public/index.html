@@ -23,7 +23,7 @@
         <button id="helpClose" class="btn small">✕</button>
       </div>
       <ol class="help-steps">
-        <li><b>🔎 Busca tu canción</b><span>Escribe la canción o el artista. No hace falta poner “karaoke”. También puedes pegar un link de YouTube.</span></li>
+        <li><b>🔎 Busca tu canción</b><span>Escribe la canción o el artista. No hace falta poner “karaoke”: solo salen versiones karaoke (con letra y sin voz). También puedes pegar un link de YouTube, pero tiene que ser de karaoke.</span></li>
         <li><b>🎤 Dale “Anotarme”</b><span>Entras al final de la fila. Arriba a la derecha ves tu turno: <i>#3</i>, <i>Sigues tú</i> o <i>¡Te toca!</i></span></li>
         <li><b>☝️ Una canción a la vez</b><span>Mientras la tuya esté en la fila o sonando, no puedes agregar otra. Cuando termines, tu cel vibra y ya puedes anotarte de nuevo.</span></li>
         <li><b>🎵 Géneros</b><span>Toca un género arriba del buscador (Salsa, Banda, Norteño…) y solo te saldrán canciones de ese estilo: primero eliges la canción y luego su video de karaoke.</span></li>
@@ -179,7 +179,7 @@ function flash(text, type = '') { const m = $('#msg'); m.textContent = text; m.c
 
 // ---------- Buscar y anotarse ----------
 function showVideos(data) {
-  flash(data.length ? '' : 'Sin resultados, prueba con otro nombre');
+  flash(data.length ? '' : 'No encontré versión karaoke de esa canción 😕 Prueba con otro nombre o artista.');
   $('#results').innerHTML = data.map((v, i) => `
     <li>
       <img src="/thumb/${esc(v.videoId)}" alt="" loading="lazy">

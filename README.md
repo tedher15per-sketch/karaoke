@@ -106,22 +106,26 @@ Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel t
 ## 📱 Instrucciones para los invitados
 En el cel hay un botón **❓** (arriba a la derecha) con una guía corta: buscar y anotarse, una canción a la vez, géneros y rondas, reacciones y cómo votar en el concurso. Se abre sola la primera vez que alguien pone su nombre. El texto está en `public/index.html` (bloque `id="help"`).
 
+## 🎤 Solo karaoke
+Solo se aceptan videos de karaoke: el título debe decir *karaoke*, *pista*, *instrumental con letra*… o venir de un canal de karaoke (Sing King, KaraFun, Stingray, etc.). Se descartan videos oficiales, lyric videos, en vivo, covers, reacciones y tutoriales. También aplica a los links pegados y la cola rechaza cualquier video que no haya pasado el filtro. Para desactivarlo: `KARAOKE_ONLY=0`.
+
 ## 🎵 Géneros (validados de verdad)
 Con un género activo la búsqueda es en 2 pasos: **1)** sale la lista de canciones que sí son de ese género, **2)** eliges una y salen sus karaokes.
 
 - **En el cel:** la fila de géneros arriba del buscador es un filtro voluntario.
-- **Ronda del DJ** (selector **🎵 Ronda** en la pantalla): obligatoria para todos. Solo se pueden anotar videos que salieron de una canción validada y **no se aceptan links pegados**. *Todos los géneros* termina la ronda.
+- **Ronda del DJ** (selector **🎵 Ronda**): obligatoria para todos; solo se anotan videos que salieron de una canción validada y no se aceptan links.
 
-Cómo se valida:
-| Tipo | Ejemplos | Se valida con |
-|---|---|---|
-| **Subgénero** | Salsa, Cumbia, Bachata, Merengue · Banda, Norteño, Mariachi, Corridos, Grupera | **Lista de artistas** de ese estilo en `generos.js` (o el artista lleva la palabra, ej. "Banda MS", y Apple lo marca como mexicana/tropical) |
-| **Familia** | Toda la tropical, Toda la mexicana, Reggaetón, Pop/Rock en español, Baladas, Pop/Rock en inglés, Infantiles | Género que da Apple Music (iTunes) |
-| **Época** | Ochenteras | Año de lanzamiento (1978–1992) |
+Cómo se decide si una canción es de un género (en este orden):
+1. **El artista está en la lista de ese género** (`generos.js`) → sí.
+2. **El artista está en la lista de OTRO género del mismo grupo** → no. Así Karol G o Bad Bunny nunca salen en *Pop en español* aunque Apple marque la canción como pop, y Sebastián Yatra no sale en *Reggaetón* aunque la canción sea urbana.
+3. **Artista que no está en ninguna lista** → se usa el género que da Apple Music (ej. "Urbano latino" → reggaetón). En subgéneros (banda, salsa…) solo entra si su nombre lleva la palabra (ej. "Banda …") y Apple lo marca como mexicana/tropical.
 
-**¿Falta un artista?** Abre `generos.js`, agrégalo a la lista del subgénero (sin preocuparte por acentos ni mayúsculas) y haz `git push`. Si un artista hace dos estilos (ej. Juan Luis Guerra), puede estar en las dos listas.
-
-Si iTunes no responde: en ronda pide intentar de nuevo; con el filtro voluntario busca normal.
+Detalles:
+- Nombres de una palabra (Kiss, Queen, Mora, Camila…) cuentan solo exactos: *Mora* no atrapa a *Lalo Mora* ni *Queen* a *Queen Latifah*. Las colaboraciones (A & B, A feat. B) se revisan por cada artista.
+- Lo que vimos en Apple: todo el reggaetón sale como "Urbano latino", pero Shakira sale como "Pop" (inglés). Por eso mandan las listas.
+- Catálogo: Apple Music (trae género y año). Apple limita a ~20 consultas por minuto; si se satura se usa **Deezer** de respaldo (sin género: solo cuentan las listas de artistas; *Ochenteras* necesita a Apple por el año).
+- Géneros: Salsa · Cumbia · Bachata · Merengue · Toda la tropical · Banda · Norteño · Mariachi · Corridos · Grupera · Toda la mexicana · Reggaetón · Pop en español · Rock en español · Baladas y boleros · Pop en inglés · Rock en inglés · Ochenteras · Infantiles.
+- **¿Falta un artista?** Agrégalo en su lista de `generos.js` (acentos y mayúsculas no importan) y haz `git push`. Si de verdad hace dos estilos, ponlo en las dos.
 
 ## 🎭 Concurso de disfraces
 1. **🎭 Concurso de disfraces** → número de participantes (1–50) y nombres opcionales → **Iniciar concurso** (el karaoke se pausa).

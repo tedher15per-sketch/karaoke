@@ -22,9 +22,25 @@ const SEARCH_SUFFIX = env('SEARCH_SUFFIX', 'karaoke');
 // Géneros: la lista vive en generos.js (ahí se agregan artistas a los subgéneros)
 const norm = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// Nombres de varias palabras: se buscan dentro del artista ("La Arrolladora" ⊂ "La Arrolladora Banda El Limón").
+// Nombres de una palabra: deben ser exactos en alguna parte del artista ("Mora" no atrapa a "Lalo Mora").
+const artistParts = (a) => a.split(/\s*(?:,|&|\+|\/|\bx\b|\by\b|\band\b|\bcon\b|\bfeat\.?|\bft\.?|\bvs\.?)\s*/).map((x) => x.trim()).filter(Boolean);
+function compileArtists(list) {
+  const names = [...new Set(list.map(norm))];
+  const multi = names.filter((n) => n.includes(' '));
+  return {
+    re: multi.length ? new RegExp(`(^|[^a-z0-9])(${multi.map(escRe).join('|')})([^a-z0-9]|$)`) : null,
+    single: new Set(names.filter((n) => !n.includes(' '))),
+  };
+}
+const knownArtist = (g, artist) => !!g.matcher && (g.matcher.re?.test(artist) || artistParts(artist).some((p) => g.matcher.single.has(p)));
 for (const g of GENRES) {
+  // Los géneros "toda la tropical / toda la mexicana" incluyen a todos los artistas de sus subgéneros
+  if (!g.artists && g.match && (g.id === 'tropical' || g.id === 'mexicana')) {
+    g.artists = GENRES.filter((x) => x.group === g.group && x.artists).flatMap((x) => x.artists);
+  }
   if (g.artists) {
-    g.artistRe = new RegExp(`(^|[^a-z0-9])(${g.artists.map((a) => escRe(norm(a))).join('|')})([^a-z0-9]|$)`);
+    g.matcher = compileArtists(g.artists);
     g.hint ??= 'como ' + g.artists.slice(0, 3).join(', ');
   }
 }
@@ -32,13 +48,16 @@ const genreById = (id) => GENRES.find((g) => g.id === id) || null;
 let djGenre = null; // ronda del DJ: si está puesta, manda sobre lo que elija cada invitado
 const fitsGenre = (genre, t) => {
   if (genre.years) { const y = Number(String(t.releaseDate || '').slice(0, 4)); return y >= genre.years[0] && y <= genre.years[1]; }
-  if (genre.artists) {
-    // Subgénero: artista de la lista, o nombre con la palabra clave y Apple lo marca dentro de la familia
-    const artist = norm(t.artistName);
-    if (genre.artistRe.test(artist)) return true;
-    return !!genre.keyword && genre.keyword.test(artist) && genre.family.test(norm(t.primaryGenreName));
-  }
-  return genre.match.test(norm(t.primaryGenreName));
+  const artist = norm(t.artistName);
+  const apple = norm(t.primaryGenreName); // vacío si la canción vino de Deezer (respaldo)
+  // 1) Artista de la lista de este género
+  if (knownArtist(genre, artist)) return true;
+  // 2) Artista conocido de OTRO género del mismo grupo (ej. Karol G en "Pop en español") → no
+  if (genre.exclusive && GENRES.some((o) => o !== genre && o.exclusive && knownArtist(o, artist))) return false;
+  if (!apple) return false;
+  // 3) Artista desconocido: subgénero → palabra clave en el nombre + familia de Apple; familia → género de Apple
+  if (genre.family) return !!genre.keyword && genre.keyword.test(artist) && genre.family.test(apple);
+  return !!genre.match && genre.match.test(apple);
 };
 const YT_KEY = env('YOUTUBE_API_KEY');
 // Tope de búsquedas por día para no acabarse la cuota gratis (10,000 unidades = 100 búsquedas)
@@ -176,14 +195,30 @@ app.get('/api/genres', (_req, res) => res.json({
 
 // ---------- Catálogo de iTunes (para validar géneros) ----------
 const itunesCache = new Map(); // término → { at, tracks }
-async function itunesSearch(q) {
+// Apple limita a ~20 consultas por minuto; si se satura, se usa Deezer (sin género, solo cuenta la lista de artistas)
+async function catalogSearch(q) {
   const key = norm(q);
   const hit = itunesCache.get(key);
   if (hit && Date.now() - hit.at < 12 * 3600e3) return hit.tracks;
-  const r = await fetch(`https://itunes.apple.com/search?country=mx&media=music&entity=song&limit=50&term=${encodeURIComponent(q)}`);
-  if (!r.ok) throw new Error('itunes ' + r.status);
-  const tracks = (await r.json()).results || [];
-  itunesCache.set(key, { at: Date.now(), tracks });
+  let tracks = null;
+  let source = 'apple';
+  try {
+    const r = await fetch(`https://itunes.apple.com/search?country=mx&media=music&entity=song&limit=50&term=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error('itunes ' + r.status);
+    tracks = (await r.json()).results || [];
+  } catch {
+    source = 'deezer';
+    const r = await fetch(`https://api.deezer.com/search?limit=50&q=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error('deezer ' + r.status);
+    const d = await r.json();
+    if (d.error) throw new Error('deezer');
+    tracks = (d.data || []).map((x) => ({
+      trackName: x.title, artistName: x.artist?.name, primaryGenreName: '', releaseDate: '',
+      artworkUrl100: null,
+    }));
+  }
+  // Apple se guarda 12 h; Deezer solo 10 min (para volver a intentar con Apple, que sí trae género)
+  itunesCache.set(key, { at: source === 'apple' ? Date.now() : Date.now() - 12 * 3600e3 + 10 * 60e3, tracks });
   if (itunesCache.size > 800) itunesCache.delete(itunesCache.keys().next().value);
   return tracks;
 }
@@ -192,16 +227,33 @@ const trackTokens = new Map();
 const approvedVideos = new Map();
 const remember = (map, k, v, max = 3000) => { map.set(k, { ...v, at: Date.now() }); if (map.size > max) map.delete(map.keys().next().value); };
 
+// ---------- Solo karaoke ----------
+// Un video cuenta como karaoke si el título lo dice (karaoke, pista, versión karaoke…)
+// o si es de un canal de karaoke conocido. Lo demás (videos oficiales, lyric videos, en vivo) se descarta.
+const KARAOKE_ONLY = env('KARAOKE_ONLY', '1') !== '0';
+const KARAOKE_TITLE = /karaok|\bpista\b|\bpistas\b|sing ?along|instrumental (con|with) (letra|lyrics)|backing track (con|with) (letra|lyrics)|\bkaraok[eé]\b/;
+const KARAOKE_CHANNEL = /karaok|sing king|karafun|stingray|sing2|zzang|lucky voice|party tyme|ameritz|cantoyo|singstar|musisi|pistas/;
+const NOT_KARAOKE = /\b(reaccion|reaction|tutorial|como cantar|how to sing|cover acustico|cover by|en vivo desde|unboxing)\b/;
+const isKaraoke = (title, channel) => {
+  const t = norm(title), c = norm(channel);
+  if (NOT_KARAOKE.test(t)) return false;
+  return KARAOKE_TITLE.test(t) || KARAOKE_CHANNEL.test(c);
+};
+const karaokeVideos = new Map(); // videoId → visto como karaoke (para validar al anotarse)
+
 // Búsqueda de karaoke en YouTube (con caché, límites por cel y tope diario)
 async function youtubeSearch(req, query) {
   const key = norm(query);
   const hit = searchCache.get(key);
-  if (hit && Date.now() - hit.at < 6 * 3600e3) return { items: hit.items };
+  if (hit && Date.now() - hit.at < 6 * 3600e3) {
+    hit.items.forEach((it) => remember(karaokeVideos, it.videoId, {}));
+    return { items: hit.items };
+  }
   const limited = deviceAllowed(clean(req.get('x-cliente'), 40) || req.ip);
   if (limited) return { status: 429, error: limited };
   if (!dailyAllowed()) return { status: 429, error: 'Se acabaron las búsquedas de hoy. Pega el link de YouTube 🔗' };
   const params = new URLSearchParams({
-    part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '12', q: query, key: YT_KEY,
+    part: 'snippet', type: 'video', videoEmbeddable: 'true', maxResults: '25', q: query, key: YT_KEY,
   });
   try {
     daily.count++;
@@ -212,7 +264,8 @@ async function youtubeSearch(req, query) {
       videoId: it.id.videoId,
       title: decodeHtml(it.snippet.title),
       channel: decodeHtml(it.snippet.channelTitle),
-    }));
+    })).filter((it) => !KARAOKE_ONLY || isKaraoke(it.title, it.channel)).slice(0, 12);
+    items.forEach((it) => remember(karaokeVideos, it.videoId, {}));
     searchCache.set(key, { at: Date.now(), items });
     if (searchCache.size > 500) searchCache.delete(searchCache.keys().next().value);
     return { items };
@@ -235,6 +288,10 @@ app.get('/api/search', requireRoom, async (req, res) => {
       const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + linkId)}`);
       if (!r.ok) return res.status(404).json({ error: 'Ese video no existe o no se puede embeber' });
       const d = await r.json();
+      if (KARAOKE_ONLY && !isKaraoke(d.title, d.author_name)) {
+        return res.status(422).json({ error: 'Ese video no es karaoke 🙅 Busca la versión karaoke (con letra y sin voz).' });
+      }
+      remember(karaokeVideos, linkId, {});
       return res.json([{ videoId: linkId, title: clean(d.title, 120), channel: clean(d.author_name, 60) }]);
     } catch {
       return res.status(502).json({ error: 'No se pudo conectar con YouTube' });
@@ -246,7 +303,7 @@ app.get('/api/search', requireRoom, async (req, res) => {
   if (genre) {
     let tracks;
     try {
-      tracks = await itunesSearch(q);
+      tracks = await catalogSearch(q);
     } catch {
       if (djGenre) return res.status(503).json({ error: 'No pude revisar el género ahorita. Intenta otra vez en unos segundos ⏳' });
       tracks = null; // filtro voluntario: si iTunes falla, se busca normal
@@ -297,6 +354,9 @@ app.post('/api/queue', requireRoom, (req, res) => {
   const videoId = clean(req.body.videoId, 20);
   const title = clean(req.body.title, 120);
   if (!name || !VIDEO_ID.test(videoId)) return res.status(400).json({ error: 'Falta tu nombre o la canción' });
+  if (KARAOKE_ONLY && !karaokeVideos.has(videoId)) {
+    return res.status(422).json({ error: 'Solo se pueden anotar videos de karaoke. Búscala otra vez 🔎' });
+  }
   if (djGenre && approvedVideos.get(videoId)?.genreId !== djGenre.id) {
     return res.status(403).json({ error: `En la ronda de ${djGenre.label} solo se vale ${djGenre.label.toLowerCase()} ${djGenre.emoji}. Búscala otra vez.` });
   }
