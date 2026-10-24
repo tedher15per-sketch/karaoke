@@ -99,6 +99,7 @@ Cuidar la cuota de YouTube: las búsquedas repetidas salen de caché, cada cel t
 
 ## En la fiesta
 - **QR:** si configuraste el WiFi, arriba del QR hay dos botones (**📶 WiFi** / **🎤 Karaoke**) para elegir cuál se ve. Clic en el QR (o tecla **G**) lo pone en grande; tecla **Q** cambia entre los dos.
+- **➕ Agregar canción para alguien:** para quien no pudo entrar al QR. Escribes su nombre, buscas la canción (o pegas un link) y le das *Agregar*; puedes ponerla como siguiente. Al DJ no le aplican el límite de una canción, la ronda de género ni el filtro de links.
 - **Pantalla:** ⏯️ pausa, ⏭️ saltar, 📋 cola (reordenar, borrar, vaciar, 🔄 nuevo código de sala). Teclado: **→** saltar, **espacio** pausar.
 - **YouTube Premium:** inicia sesión en youtube.com en el navegador de la pantalla y se van los anuncios.
 - **Código filtrado:** 📋 → 🔄 Nuevo código. Los que ya estaban ven la cola, pero para anotarse piden el código nuevo.

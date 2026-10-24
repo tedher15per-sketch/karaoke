@@ -67,6 +67,7 @@
         <button id="btnSkip" class="btn">⏭️ Saltar</button>
         <button id="btnQueue" class="btn">📋 Cola</button>
       </div>
+      <button id="btnAdd" class="btn add-btn hidden">➕ Agregar canción para alguien</button>
       <div id="roundBox" class="round-box hidden">
         <label for="roundSel">🎵 Ronda</label>
         <select id="roundSel"><option value="">Todos los géneros</option></select>
@@ -74,6 +75,25 @@
       <button id="btnContest" class="btn contest-btn hidden">🎭 Concurso de disfraces</button>
     </aside>
   </main>
+
+  <!-- El DJ agrega una canción a nombre de alguien -->
+  <div id="addPanel" class="overlay hidden">
+    <div class="admin-box add-box">
+      <div class="admin-head">
+        <h2>➕ Agregar canción</h2>
+        <button id="closeAdd" class="btn">✕</button>
+      </div>
+      <p class="muted add-hint">Para quien no pudo entrar al QR. El DJ manda: no aplica el límite de una canción ni la ronda.</p>
+      <input id="djName" maxlength="30" placeholder="Nombre de quien canta" autocomplete="off">
+      <form id="djSearch" class="search">
+        <input id="djQ" placeholder="Canción, artista o link de YouTube…" autocomplete="off">
+        <button class="btn primary">Buscar</button>
+      </form>
+      <label class="add-next"><input id="djNext" type="checkbox"> Ponerla como siguiente (si no, va al final)</label>
+      <div id="djMsg" class="msg"></div>
+      <ul id="djResults" class="results"></ul>
+    </div>
+  </div>
 
   <!-- QR en grande -->
   <div id="qrBig" class="overlay qr-big hidden" title="Clic para cerrar">
@@ -194,6 +214,47 @@ function showBanner(html) {
   b.innerHTML = html; b.classList.remove('hidden');
   clearTimeout(bannerT);
   bannerT = setTimeout(() => b.classList.add('hidden'), 5000);
+}
+
+// ---------- El DJ agrega canciones ----------
+let salaValue = '';
+const djApi = (url, opts = {}) => fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', 'x-pin': pin, 'x-sala': salaValue, 'x-cliente': 'dj-pantalla' } });
+const djFlash = (t, type = '') => { $('#djMsg').textContent = t; $('#djMsg').className = 'msg ' + type; };
+$('#btnAdd').onclick = () => { $('#addPanel').classList.remove('hidden'); djFlash(''); setTimeout(() => $('#djName').focus(), 50); };
+$('#closeAdd').onclick = () => $('#addPanel').classList.add('hidden');
+$('#djSearch').onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $('#djQ').value.trim();
+  if (!q) return;
+  djFlash('Buscando…');
+  $('#djResults').innerHTML = '';
+  try {
+    const r = await djApi('/api/search?q=' + encodeURIComponent(q));
+    const data = await r.json();
+    if (!r.ok) return djFlash(data.error || 'Error al buscar', 'err');
+    const list = Array.isArray(data) ? data : [];
+    djFlash(list.length ? '' : 'No encontré karaoke de esa canción. Prueba con otro nombre o pega un link.');
+    $('#djResults').innerHTML = list.map((v, i) => `
+      <li>
+        <img src="/thumb/${esc(v.videoId)}" alt="" loading="lazy">
+        <div class="info"><div class="t">${esc(v.title)}</div><div class="c">${esc(v.channel)}</div></div>
+        <button class="btn primary small" data-i="${i}">Agregar</button>
+      </li>`).join('');
+    $('#djResults').querySelectorAll('button').forEach((b) => { b.onclick = () => djAdd(list[b.dataset.i], b); });
+  } catch { djFlash('Sin conexión con el servidor', 'err'); }
+};
+async function djAdd(v, btn) {
+  const name = $('#djName').value.trim();
+  if (!name) { djFlash('Escribe el nombre de quien canta', 'err'); $('#djName').focus(); return; }
+  btn.disabled = true;
+  try {
+    const r = await djApi('/api/dj/queue', { method: 'POST', body: JSON.stringify({ name, videoId: v.videoId, title: v.title, next: $('#djNext').checked }) });
+    const data = await r.json();
+    if (!r.ok) { btn.disabled = false; return djFlash(data.error, 'err'); }
+    showBanner(`➕ <b>${esc(name)}</b> quedó anotado${data.position ? ` (lugar #${data.position})` : ''}`);
+    $('#djName').value = ''; $('#djQ').value = ''; $('#djResults').innerHTML = ''; $('#djNext').checked = false;
+    $('#addPanel').classList.add('hidden');
+  } catch { btn.disabled = false; djFlash('Sin conexión con el servidor', 'err'); }
 }
 
 // ---------- QR: elegir cuál se ve y agrandarlo ----------
@@ -346,6 +407,7 @@ async function loadInfo() {
   $('#qr').src = info.qr;
   $('#url').textContent = info.url.replace(/^https?:\/\//, '');
   $('#salaCode').textContent = info.sala;
+  salaValue = info.sala;
   if (info.wifiQr) {
     $('#wifiQr').src = info.wifiQr; $('#ssid').textContent = '📶 ' + info.ssid;
     $('#qrTabs').classList.remove('hidden'); $('#step2').classList.remove('hidden');
@@ -397,6 +459,7 @@ $('#startBtn').onclick = async () => {
   started = true;
   $('#controls').classList.remove('hidden');
   $('#btnContest').classList.remove('hidden');
+  $('#btnAdd').classList.remove('hidden');
   $('#roundBox').classList.remove('hidden');
   $('#start').classList.add('hidden');
   document.documentElement.requestFullscreen?.().catch(() => {});

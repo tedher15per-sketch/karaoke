@@ -161,9 +161,13 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/screen', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'screen.html')));
 app.get('/healthz', (_req, res) => res.send('ok'));
 
-const requireRoom = (req, res, next) => (roomOk(req.get('x-sala'))
-  ? next()
-  : res.status(401).json({ error: 'Código de sala incorrecto. Míralo en la pantalla 📺', sala: true }));
+// La pantalla del DJ manda su PIN en x-pin: cuenta como DJ (sin límites de ronda, de karaoke ni de una canción)
+const isDJReq = (req) => !!req.get('x-pin') && checkPin(req.ip, req.get('x-pin')) === 'ok';
+const requireRoom = (req, res, next) => {
+  req.isDJ = isDJReq(req);
+  if (req.isDJ || roomOk(req.get('x-sala'))) return next();
+  res.status(401).json({ error: 'Código de sala incorrecto. Míralo en la pantalla 📺', sala: true });
+};
 
 // Validar código de sala
 app.post('/api/join', (req, res) => (roomOk(req.body?.sala)
@@ -324,17 +328,19 @@ app.get('/api/search', requireRoom, async (req, res) => {
   const raw = String(req.query.q ?? '').trim();
   const q = clean(raw, 100);
   if (!q) return res.json([]);
-  const genre = djGenre || genreById(String(req.query.genero || ''));
+  // El DJ no está atado a la ronda: solo usa el género si él lo elige
+  const round = req.isDJ ? null : djGenre;
+  const genre = round || genreById(String(req.query.genero || ''));
 
   // ¿Pegaron un link? Se resuelve sin gastar cuota (oEmbed). En ronda no se vale: no hay cómo validar el género.
   const linkId = youtubeId(raw);
   if (linkId) {
-    if (djGenre) return res.status(403).json({ error: `Durante la ronda de ${djGenre.label} no se pueden pegar links. Busca por nombre 🔎` });
+    if (round) return res.status(403).json({ error: `Durante la ronda de ${round.label} no se pueden pegar links. Busca por nombre 🔎` });
     try {
       const r = await fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + linkId)}`);
       if (!r.ok) return res.status(404).json({ error: 'Ese video no existe o no se puede embeber' });
       const d = await r.json();
-      if (KARAOKE_ONLY && !isKaraoke(d.title, d.author_name)) {
+      if (KARAOKE_ONLY && !req.isDJ && !isKaraoke(d.title, d.author_name)) {
         return res.status(422).json({ error: 'Ese video no es karaoke 🙅 Busca la versión karaoke (con letra y sin voz).' });
       }
       remember(karaokeVideos, linkId, {});
@@ -351,7 +357,7 @@ app.get('/api/search', requireRoom, async (req, res) => {
     try {
       tracks = await catalogSearch(q);
     } catch {
-      if (djGenre) return res.status(503).json({ error: 'No pude revisar el género ahorita. Intenta otra vez en unos segundos ⏳' });
+      if (round) return res.status(503).json({ error: 'No pude revisar el género ahorita. Intenta otra vez en unos segundos ⏳' });
       tracks = null; // filtro voluntario: si iTunes falla, se busca normal
     }
     if (tracks) {
@@ -430,6 +436,21 @@ app.post('/api/queue', requireRoom, (req, res) => {
   if (!state.current) advance(); // si no hay nada sonando, arranca solo
   broadcast();
   res.json({ ok: true, entry: strip(entry), position: state.queue.findIndex((s) => s.id === entry.id) + 1 });
+});
+
+// El DJ agrega una canción a nombre de alguien (sin cel, sin señal, o porque él quiere)
+app.post('/api/dj/queue', (req, res) => {
+  if (!isDJReq(req)) return res.status(401).json({ error: 'PIN del DJ incorrecto' });
+  const name = clean(req.body.name, 30) || 'DJ';
+  const videoId = clean(req.body.videoId, 20);
+  const title = clean(req.body.title, 120);
+  if (!VIDEO_ID.test(videoId)) return res.status(400).json({ error: 'Falta la canción' });
+  const entry = { id: nextId++, name, videoId, title, owner: 'dj', byDJ: true, addedAt: Date.now() };
+  if (req.body.next && state.current) state.queue.unshift(entry); // "poner como siguiente"
+  else state.queue.push(entry);
+  if (!state.current) advance();
+  broadcast();
+  res.json({ ok: true, position: state.queue.findIndex((s) => s.id === entry.id) + 1 });
 });
 
 function advance() {

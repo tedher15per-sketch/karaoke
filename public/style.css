@@ -276,3 +276,11 @@ input:focus { border-color: var(--pink); }
 .flag { flex-shrink: 0; border: 0; background: rgba(255,90,95,.12); color: var(--text); border-radius: 8px;
   padding: 4px 8px; font-size: 14px; cursor: pointer; }
 .flag.done { background: none; opacity: .6; cursor: default; }
+
+/* ---- El DJ agrega canciones ---- */
+.add-btn { width: 100%; }
+.add-box { gap: 10px; }
+.add-hint { margin: -4px 0 0; font-size: 14px; }
+.add-next { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); cursor: pointer; }
+.add-next input { width: auto; }
+.add-box .results { overflow: auto; max-height: 45vh; }
